@@ -23,7 +23,10 @@ def test_detect_returns_camel_case_contract(client):
     assert body["anomalyDetected"] is True
     assert body["simulatedData"] is True
     assert body["recommendationSource"] == "RULES"
-    assert body["message"].startswith("Comportamiento inusual")
+    assert body["anomalyType"] not in ("NONE", "UNKNOWN")
+    assert body["message"].startswith("Posible")
+    assert body["diagnosis"].startswith("Causa probable")
+    assert body["featureDeviations"]["packet_loss"] > 2
     assert {"anomalyScore", "severity", "message", "contributingFeatures", "modelVersion"} <= body.keys()
 
 
@@ -51,3 +54,13 @@ def test_model_info(client):
 def test_interactive_docs_are_not_exposed(client):
     assert client.get("/docs").status_code == 404
     assert client.get("/openapi.json").status_code == 404
+
+
+def test_normal_window_has_no_diagnosis(client):
+    body = client.post("/api/v1/anomalies/detect",
+                       json={"networkId": 1, "simulatedData": False, "measurements": [NORMAL]}).json()
+
+    assert body["anomalyType"] == "NONE"
+    assert body["diagnosis"] is None
+    assert body["simulatedData"] is False
+
