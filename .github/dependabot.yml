@@ -1,0 +1,20 @@
+# Dependabot opens a Pull Request when a dependency has a new version (for example a security fix): the Python
+# packages of requirements.txt, the GitHub Actions of the workflows and the Docker base image. Once a month and at most
+# 3 at a time, so the team can review them.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
