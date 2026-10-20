@@ -23,10 +23,12 @@ app/security.py       auditoría de seguridad de la red del usuario (cifrado, pu
 app/channel.py        mejor canal Wi-Fi según las redes vecinas que vio el agente
 app/training.py       entrenamiento con mediciones reales y decisión de reemplazar el modelo en uso
 app/llm_advisor.py    recomendaciones opcionales con Claude
-docs/                 evaluacion_modelos.md, entrenamiento_real.md, modelo_calidad.md, auditoria_seguridad.md y canal_wifi.md
+docs/                 evaluacion_modelos.md, entrenamiento_real.md, pruebas_de_carga.md, modelo_calidad.md, auditoria_seguridad.md y canal_wifi.md
+load-tests/           carga_ia.py: prueba de carga del servicio (solo Python estándar)
 tests/                preprocesamiento, modelo, diagnóstico, escenarios, evaluación, seguridad, canal, agente y API
 agent/                agente WiFiSense que corre en la casa del usuario e instalador para Windows (ver agent/README.md)
-.github/workflows/    construcción del instalador WiFiSenseAgente.exe
+.github/workflows/    servicio-ia.yml (pruebas, pip-audit e imagen en cada Pull Request) y agente-windows.yml (instalador)
+.github/dependabot.yml  actualizaciones mensuales de pip, acciones y Docker
 ```
 
 ## Modelo
@@ -156,7 +158,11 @@ hasta 3 recomendaciones en español (le envía también la causa probable del di
 | POST | `/api/v1/security/assess` | Auditoría de seguridad de 0 a 100 con hallazgos y acciones |
 | POST | `/api/v1/channel/recommend` | Canal con menos interferencia y si vale la pena cambiarlo |
 
-Si `AI_API_KEY` está definida, los endpoints `/api/v1/**` exigen la cabecera `X-API-Key`.
+Si `AI_API_KEY` está definida, los endpoints `/api/v1/**` exigen la cabecera `X-API-Key` (comparada en tiempo
+constante). Una solicitud de más de 8 MB se rechaza con 413 antes de leerla.
+
+**Capacidad** ([docs/pruebas_de_carga.md](docs/pruebas_de_carga.md)): unas 70 peticiones por segundo en 2 núcleos, con
+10 a la vez p95 de 382 ms. Cada detección recorre los 200 árboles una sola vez (antes dos): +60 % de capacidad.
 
 ### Entrada
 
@@ -205,7 +211,8 @@ pip install -r requirements.txt
 cp .env.example .env                       # AI_API_KEY igual a la del backend
 export $(grep -v '^#' .env | xargs)
 uvicorn app.main:app --port 8000
-pytest                                     # 65 pruebas
+pytest                                     # 239 pruebas (2 solo corren en Windows)
+python load-tests/carga_ia.py --clientes 10  # prueba de carga (AI_API_KEY en el entorno)
 python -m app.evaluation                   # imprime la evaluación en Markdown
 docker build -t wifisense-ai . && docker run -p 8000:8000 -e AI_API_KEY=... wifisense-ai
 ```
