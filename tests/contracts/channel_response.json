@@ -1,0 +1,28 @@
+{
+  "band": "2.4",
+  "currentChannel": 6,
+  "currentLoad": 7.0,
+  "recommendedChannel": 1,
+  "recommendedLoad": 2.0,
+  "shouldChange": true,
+  "summary": "Tu router usa el canal 6, donde hay 7 redes vecinas. En el canal 1 hay 2 redes vecinas.",
+  "action": "Entra a la configuración del router (suele ser 192.168.0.1 o 192.168.1.1), busca Wi-Fi 2.4 GHz → Canal, cambia «Automático» por 1 y guarda. Tus equipos se reconectan solos en unos segundos.",
+  "options": [
+    {
+      "channel": 1,
+      "networks": 2,
+      "load": 2.0
+    },
+    {
+      "channel": 6,
+      "networks": 7,
+      "load": 7.0
+    },
+    {
+      "channel": 11,
+      "networks": 3,
+      "load": 3.0
+    }
+  ],
+  "modelVersion": "channel-1.0"
+}
