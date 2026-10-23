@@ -1,0 +1,14 @@
+{
+  "authentication": "WPA2",
+  "cipher": "CCMP",
+  "openPorts": [
+    23,
+    53,
+    80
+  ],
+  "deviceCount": 9,
+  "newDeviceCount": 1,
+  "band": "2.4",
+  "channel": 6,
+  "neighborsSameChannel": 4
+}
