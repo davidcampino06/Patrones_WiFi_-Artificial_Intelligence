@@ -1,13 +1,17 @@
 import logging
+import math
 import os
 import secrets
 import threading
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 from app import channel, evaluation, quality, security, training
-from app.llm_advisor import ClaudeAdvisor
+from app.llm_advisor import Advisor, ClaudeAdvisor
 from app.model_service import AnomalyDetectionService
 from app.schemas import (AnalysisRequest, AnalysisResponse, EvaluationReport, ModelInfo, TrainingRequest,
                          TrainingResult)
@@ -48,8 +52,22 @@ class EvaluationRun:
             self._done.set()
 
 
+RAILWAY_VARIABLES = ("RAILWAY_ENVIRONMENT", "RAILWAY_ENVIRONMENT_NAME", "RAILWAY_PROJECT_ID")
+
+
+def require_api_key(environ=os.environ, api_key: str | None = None) -> None:
+    """In Railway the service must never run open: without AI_API_KEY anyone who reaches it could use (and retrain) the
+    model. Locally the key stays optional so the service can be tried without configuration. AI_ALLOW_NO_KEY=true is
+    an explicit, visible exception for a demonstration."""
+    on_railway = any(environ.get(name) for name in RAILWAY_VARIABLES)
+    if on_railway and not api_key and environ.get("AI_ALLOW_NO_KEY") != "true":
+        raise RuntimeError("AI_API_KEY no está configurada: en Railway el servicio de IA no arranca sin clave. Ponle la "
+                           "misma clave que tiene el backend en su variable AI_API_KEY.")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    require_api_key(api_key=API_KEY)
     app.state.detector = AnomalyDetectionService.load_or_train(MODEL_PATH)
     app.state.advisor = ClaudeAdvisor.from_env()
     app.state.evaluation = EvaluationRun().start()
@@ -107,6 +125,25 @@ class BodyTooLarge(Exception):
 app.add_middleware(BodyLimit)
 
 
+def _json_safe(value):
+    """NaN and infinity are not JSON: as text, so a validation error can always be written."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return value
+
+
+@app.exception_handler(RequestValidationError)
+async def invalid_request(request: Request, error: RequestValidationError) -> JSONResponse:
+    """422 with the list of errors, as FastAPI does. A NaN or an infinity in the body (JSON allows writing them, and
+    Jackson writes NaN as the text "NaN") used to end in a 500, because the default answer repeats the invalid value
+    and NaN cannot be written as JSON."""
+    return JSONResponse(status_code=422, content={"detail": _json_safe(jsonable_encoder(error.errors()))})
+
+
 def verify_api_key(x_api_key: str | None = Header(default=None)) -> None:
     """Only the backend calls this service; the shared key is optional for local development."""
     if API_KEY and not secrets.compare_digest(x_api_key or "", API_KEY):
@@ -117,7 +154,7 @@ def detector(request: Request) -> AnomalyDetectionService:
     return request.app.state.detector
 
 
-def advisor(request: Request) -> ClaudeAdvisor | None:
+def advisor(request: Request) -> Advisor:
     return request.app.state.advisor
 
 
@@ -129,8 +166,8 @@ def health() -> dict:
 @app.get("/api/v1/model", response_model=ModelInfo, response_model_by_alias=True,
          dependencies=[Depends(verify_api_key)])
 def model_info(service: AnomalyDetectionService = Depends(detector),
-               claude: ClaudeAdvisor | None = Depends(advisor)) -> ModelInfo:
-    return service.info(claude.model if claude else "reglas")
+               advice: Advisor = Depends(advisor)) -> ModelInfo:
+    return service.info(advice.model)
 
 
 _training_lock = threading.Lock()
@@ -171,11 +208,11 @@ def model_evaluation(request: Request) -> EvaluationReport:
           dependencies=[Depends(verify_api_key)])
 def detect_anomalies(payload: AnalysisRequest,
                      service: AnomalyDetectionService = Depends(detector),
-                     claude: ClaudeAdvisor | None = Depends(advisor)) -> AnalysisResponse:
+                     advice: Advisor = Depends(advisor)) -> AnalysisResponse:
     result = service.detect(payload)
     # Claude is only asked when there is something to explain: the agent reports every few minutes and a normal
     # result already has nothing to recommend, so this keeps the API cost (and latency) proportional to problems.
-    return claude.enrich(result, payload) if claude and result.anomaly_detected else result
+    return advice.enrich(result, payload) if result.anomaly_detected else result
 
 
 @app.post("/api/v1/quality/score", response_model=QualityResponse, response_model_by_alias=True,
