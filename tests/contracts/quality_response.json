@@ -1,0 +1,69 @@
+{
+  "score": 93,
+  "grade": "EXCELLENT",
+  "gradeLabel": "Excelente",
+  "metrics": [
+    {
+      "metric": "latency",
+      "label": "Latencia",
+      "value": 38.5,
+      "unit": "ms",
+      "score": 91,
+      "status": "GOOD"
+    },
+    {
+      "metric": "jitter",
+      "label": "Jitter",
+      "value": 4.2,
+      "unit": "ms",
+      "score": 100,
+      "status": "GOOD"
+    },
+    {
+      "metric": "packet_loss",
+      "label": "Pérdida de paquetes",
+      "value": 0.4,
+      "unit": "%",
+      "score": 92,
+      "status": "GOOD"
+    },
+    {
+      "metric": "signal",
+      "label": "Intensidad de señal",
+      "value": -58.0,
+      "unit": "dBm",
+      "score": 92,
+      "status": "GOOD"
+    }
+  ],
+  "activities": [
+    {
+      "activity": "BROWSING",
+      "label": "Navegar y correo",
+      "suitable": null
+    },
+    {
+      "activity": "VIDEO_CALLS",
+      "label": "Videollamadas y clases",
+      "suitable": null
+    },
+    {
+      "activity": "STREAMING_HD",
+      "label": "Video en HD",
+      "suitable": null
+    },
+    {
+      "activity": "STREAMING_4K",
+      "label": "Video en 4K",
+      "suitable": null
+    },
+    {
+      "activity": "GAMING",
+      "label": "Juegos en línea",
+      "suitable": true
+    }
+  ],
+  "tips": [],
+  "contractedRatio": null,
+  "modelVersion": "quality-1.0"
+}
