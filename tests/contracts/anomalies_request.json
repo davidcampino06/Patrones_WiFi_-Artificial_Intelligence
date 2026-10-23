@@ -1,0 +1,138 @@
+{
+  "networkId": 3,
+  "simulatedData": false,
+  "measurements": [
+    {
+      "latency": 24.0,
+      "jitter": 3.0,
+      "packetLoss": 0.2,
+      "bandwidth": null,
+      "signalStrength": -56,
+      "trafficVolume": 85.5,
+      "connectedDevices": 7,
+      "packetCount": 6200,
+      "timestamp": "2026-10-23T14:00:00Z"
+    },
+    {
+      "latency": 25.0,
+      "jitter": 3.0,
+      "packetLoss": 0.2,
+      "bandwidth": null,
+      "signalStrength": -56,
+      "trafficVolume": null,
+      "connectedDevices": 7,
+      "packetCount": null,
+      "timestamp": "2026-10-23T14:05:00Z"
+    },
+    {
+      "latency": 26.0,
+      "jitter": 3.0,
+      "packetLoss": 0.2,
+      "bandwidth": null,
+      "signalStrength": -56,
+      "trafficVolume": 85.5,
+      "connectedDevices": 7,
+      "packetCount": 6200,
+      "timestamp": "2026-10-23T14:10:00Z"
+    },
+    {
+      "latency": 24.0,
+      "jitter": 3.0,
+      "packetLoss": 0.2,
+      "bandwidth": null,
+      "signalStrength": -56,
+      "trafficVolume": null,
+      "connectedDevices": 7,
+      "packetCount": null,
+      "timestamp": "2026-10-23T14:15:00Z"
+    },
+    {
+      "latency": 25.0,
+      "jitter": 3.0,
+      "packetLoss": 0.2,
+      "bandwidth": null,
+      "signalStrength": -56,
+      "trafficVolume": 85.5,
+      "connectedDevices": 7,
+      "packetCount": 6200,
+      "timestamp": "2026-10-23T14:20:00Z"
+    },
+    {
+      "latency": 26.0,
+      "jitter": 3.0,
+      "packetLoss": 0.2,
+      "bandwidth": null,
+      "signalStrength": -56,
+      "trafficVolume": null,
+      "connectedDevices": 7,
+      "packetCount": null,
+      "timestamp": "2026-10-23T14:25:00Z"
+    },
+    {
+      "latency": 24.0,
+      "jitter": 3.0,
+      "packetLoss": 0.2,
+      "bandwidth": null,
+      "signalStrength": -56,
+      "trafficVolume": 85.5,
+      "connectedDevices": 7,
+      "packetCount": 6200,
+      "timestamp": "2026-10-23T14:30:00Z"
+    },
+    {
+      "latency": 25.0,
+      "jitter": 3.0,
+      "packetLoss": 0.2,
+      "bandwidth": null,
+      "signalStrength": -56,
+      "trafficVolume": null,
+      "connectedDevices": 7,
+      "packetCount": null,
+      "timestamp": "2026-10-23T14:35:00Z"
+    },
+    {
+      "latency": 26.0,
+      "jitter": 3.0,
+      "packetLoss": 0.2,
+      "bandwidth": null,
+      "signalStrength": -56,
+      "trafficVolume": 85.5,
+      "connectedDevices": 7,
+      "packetCount": 6200,
+      "timestamp": "2026-10-23T14:40:00Z"
+    },
+    {
+      "latency": 24.0,
+      "jitter": 3.0,
+      "packetLoss": 0.2,
+      "bandwidth": null,
+      "signalStrength": -56,
+      "trafficVolume": null,
+      "connectedDevices": 7,
+      "packetCount": null,
+      "timestamp": "2026-10-23T14:45:00Z"
+    },
+    {
+      "latency": 25.0,
+      "jitter": 3.0,
+      "packetLoss": 0.2,
+      "bandwidth": null,
+      "signalStrength": -56,
+      "trafficVolume": 85.5,
+      "connectedDevices": 7,
+      "packetCount": 6200,
+      "timestamp": "2026-10-23T14:50:00Z"
+    },
+    {
+      "latency": 310.0,
+      "jitter": 70.0,
+      "packetLoss": 18.0,
+      "bandwidth": null,
+      "signalStrength": -56,
+      "trafficVolume": null,
+      "connectedDevices": 7,
+      "packetCount": null,
+      "timestamp": "2026-10-23T14:55:00Z"
+    }
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "score": 55,
+  "grade": "AT_RISK",
+  "gradeLabel": "En riesgo",
+  "summary": "Seguridad en riesgo: lo más urgente es «el router tiene Telnet abierto (puerto 23)» y 2 punto(s) más por revisar.",
+  "findings": [
+    {
+      "code": "PORT_TELNET",
+      "severity": "HIGH",
+      "title": "El router tiene Telnet abierto (puerto 23)",
+      "detail": "Telnet envía usuario y contraseña sin cifrar y es la puerta que usan las redes de bots como Mirai.",
+      "action": "Desactiva Telnet en el router y cambia la contraseña de administración si sigue siendo la de fábrica.",
+      "penalty": 25
+    },
+    {
+      "code": "ADMIN_HTTP",
+      "severity": "MEDIUM",
+      "title": "La administración del router no usa HTTPS",
+      "detail": "La página del router viaja sin cifrar: quien esté en la red puede ver la contraseña al iniciar sesión.",
+      "action": "Activa HTTPS en la administración del router o entra a ella solo por cable.",
+      "penalty": 10
+    },
+    {
+      "code": "NEW_DEVICES",
+      "severity": "MEDIUM",
+      "title": "1 dispositivo(s) nuevo(s) en tu red",
+      "detail": "Desde el último reporte apareció 1 equipo(s) que no se habían visto antes.",
+      "action": "Si no los reconoces, cambia la contraseña del Wi-Fi: todos tendrán que volver a conectarse.",
+      "penalty": 10
+    },
+    {
+      "code": "BAND_24",
+      "severity": "INFO",
+      "title": "Estás conectado a 2.4 GHz",
+      "detail": "La banda de 2.4 GHz llega más lejos pero es más lenta y tiene más interferencia.",
+      "action": "Si estás cerca del router, conéctate a la red de 5 GHz.",
+      "penalty": 0
+    },
+    {
+      "code": "CHANNEL_CONGESTION",
+      "severity": "INFO",
+      "title": "Canal 6 saturado",
+      "detail": "Hay 4 redes vecinas en el mismo canal y compiten por el aire con la tuya.",
+      "action": "En el router elige otro canal (en 2.4 GHz usa 1, 6 u 11) o deja el canal en automático.",
+      "penalty": 0
+    }
+  ],
+  "modelVersion": "security-1.0"
+}

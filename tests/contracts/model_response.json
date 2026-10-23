@@ -1,0 +1,20 @@
+{
+  "algorithm": "IsolationForest",
+  "modelVersion": "isolation-forest-1.1",
+  "features": [
+    "latency",
+    "jitter",
+    "packet_loss",
+    "bandwidth",
+    "signal_strength",
+    "traffic_volume",
+    "connected_devices",
+    "packet_count"
+  ],
+  "threshold": 0.5038,
+  "trainedOn": "línea base sintética de comportamiento Wi-Fi normal (datos simulados)",
+  "recommendationEngine": "reglas",
+  "realData": false,
+  "trainedSamples": null,
+  "trainedAt": null
+}

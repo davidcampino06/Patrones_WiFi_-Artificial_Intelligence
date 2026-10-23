@@ -3,6 +3,21 @@
 Servicio independiente de detección de anomalías en redes Wi-Fi. Lo llama **solo el backend**: no recibe
 peticiones del navegador y no accede a la base de datos; analiza exactamente los datos que el backend le envía.
 
+## Qué es aprendizaje automático y qué son reglas
+
+No todo lo que responde este servicio es aprendizaje automático. Para no exagerar lo que hace:
+
+| Resultado | Endpoint | Técnica | De dónde sale |
+|---|---|---|---|
+| ¿La medición es anómala? y su puntaje | `/api/v1/anomalies/detect` | **Aprendizaje automático** (Isolation Forest, no supervisado) | Modelo entrenado con la línea base sintética o con las mediciones reales (`app/model_service.py`, `app/training.py`) |
+| Severidad (baja, media, alta) | `/api/v1/anomalies/detect` | Regla sobre el puntaje del modelo | Distancia del puntaje al umbral del modelo |
+| Causa probable (congestión, interferencia…) | `/api/v1/anomalies/detect` | **Reglas** (firmas de cada falla) | `app/diagnosis.py`; es una hipótesis y así se dice ("Causa probable") |
+| Recomendación | `/api/v1/anomalies/detect` | Reglas o, si hay `ANTHROPIC_API_KEY`, **Claude (servicio externo opcional)** | `recommendationSource` dice `RULES` o `CLAUDE`; si Claude falla se usan las reglas |
+| Calidad de la conexión (0 a 100) | `/api/v1/quality/score` | **Reglas** (curvas por métrica) | `app/quality.py` |
+| Auditoría de seguridad | `/api/v1/security/assess` | **Reglas** (cifrado, puertos, equipos nuevos) | `app/security.py` |
+| Mejor canal | `/api/v1/channel/recommend` | **Reglas** (redes vecinas por canal y solapamiento) | `app/channel.py` |
+| Comparación de algoritmos | `/api/v1/model/evaluation` | Evaluación de 3 modelos de aprendizaje automático | Escenarios sintéticos etiquetados (`app/evaluation.py`) |
+
 ## Tecnologías
 
 Python 3.13 · FastAPI · Pydantic v2 · NumPy · Pandas · scikit-learn (Isolation Forest; LOF y One-Class SVM para
@@ -23,9 +38,11 @@ app/security.py       auditoría de seguridad de la red del usuario (cifrado, pu
 app/channel.py        mejor canal Wi-Fi según las redes vecinas que vio el agente
 app/training.py       entrenamiento con mediciones reales y decisión de reemplazar el modelo en uso
 app/llm_advisor.py    recomendaciones opcionales con Claude
-docs/                 evaluacion_modelos.md, entrenamiento_real.md, pruebas_de_carga.md, modelo_calidad.md, auditoria_seguridad.md y canal_wifi.md
+docs/                 patrones.md, evaluacion_modelos.md, entrenamiento_real.md, pruebas_de_carga.md, modelo_calidad.md,
+                      auditoria_seguridad.md y canal_wifi.md
 load-tests/           carga_ia.py: prueba de carga del servicio (solo Python estándar)
 tests/                preprocesamiento, modelo, diagnóstico, escenarios, evaluación, seguridad, canal, agente y API
+tests/contracts/      ejemplos JSON del contrato con el backend (los mismos que usa WiFiSense-backend)
 agent/                agente WiFiSense que corre en la casa del usuario e instalador para Windows (ver agent/README.md)
 .github/workflows/    servicio-ia.yml (pruebas, pip-audit e imagen en cada Pull Request) y agente-windows.yml (instalador)
 .github/dependabot.yml  actualizaciones mensuales de pip, acciones y Docker
@@ -143,6 +160,8 @@ hasta 3 recomendaciones en español (le envía también la causa probable del di
 - Modelo por defecto: `claude-haiku-4-5-20251001` (cambiable con `CLAUDE_MODEL`).
 - Solo se envían métricas agregadas y el veredicto del modelo; nunca IP, MAC, nombres de usuario ni identificadores.
 - Si la API falla, se agota la cuota o no hay clave, se usa la recomendación por reglas y el análisis no se interrumpe.
+  Sin clave el asesor es `RuleAdvisor` (patrón **Null Object**: deja la recomendación de las reglas), así que los
+  endpoints nunca preguntan si hay asesor. Patrones del servicio: [docs/patrones.md](docs/patrones.md).
 - La API de Claude se paga aparte en la Consola de Claude; una suscripción Claude Pro no la incluye.
 
 ## Endpoints
@@ -158,8 +177,14 @@ hasta 3 recomendaciones en español (le envía también la causa probable del di
 | POST | `/api/v1/security/assess` | Auditoría de seguridad de 0 a 100 con hallazgos y acciones |
 | POST | `/api/v1/channel/recommend` | Canal con menos interferencia y si vale la pena cambiarlo |
 
+**Contrato con el backend** (`tests/test_contract.py`): los JSON de `tests/contracts` son lo que el backend envía y lo
+que lee de cada respuesta; el backend tiene los mismos archivos en `src/test/resources/contracts` y la página tres de
+ellos. La prueba falla si un endpoint deja de aceptar esas solicitudes o deja de responder un campo con su tipo.
+
 Si `AI_API_KEY` está definida, los endpoints `/api/v1/**` exigen la cabecera `X-API-Key` (comparada en tiempo
-constante). Una solicitud de más de 8 MB se rechaza con 413 antes de leerla.
+constante). **En Railway el servicio no arranca sin `AI_API_KEY`** (`require_api_key` en `app/main.py`): un descuido de
+configuración no puede dejarlo abierto. En local la clave es opcional; `AI_ALLOW_NO_KEY=true` permite, a propósito y a
+la vista, correrlo abierto en Railway para una demostración. Una solicitud de más de 8 MB se rechaza con 413 antes de leerla.
 
 **Capacidad** ([docs/pruebas_de_carga.md](docs/pruebas_de_carga.md)): unas 70 peticiones por segundo en 2 núcleos, con
 10 a la vez p95 de 382 ms. Cada detección recorre los 200 árboles una sola vez (antes dos): +60 % de capacidad.
@@ -211,7 +236,7 @@ pip install -r requirements.txt
 cp .env.example .env                       # AI_API_KEY igual a la del backend
 export $(grep -v '^#' .env | xargs)
 uvicorn app.main:app --port 8000
-pytest                                     # 239 pruebas (2 solo corren en Windows)
+pytest                                     # 263 pruebas (2 solo corren en Windows)
 python load-tests/carga_ia.py --clientes 10  # prueba de carga (AI_API_KEY en el entorno)
 python -m app.evaluation                   # imprime la evaluación en Markdown
 docker build -t wifisense-ai . && docker run -p 8000:8000 -e AI_API_KEY=... wifisense-ai

@@ -110,6 +110,26 @@ Si Windows no deja leer los datos del Wi-Fi: Configuración → Privacidad y seg
 | Puertos abiertos en el router | intento de conexión a 21, 22, 23, 53, 80, 443, 445, 1900, 7547, 8080 y 8443 |
 | Tráfico de este computador (desde 1.4.0) | contadores del sistema desde el reporte anterior: bytes y paquetes de la tarjeta Wi-Fi (o de cable) y paquetes TCP, UDP e ICMP. En Windows con la API IP Helper (`GetIfTable2`, `GetTcpStatisticsEx`…), igual en cualquier idioma; en Linux de `/proc/net/dev` y `/proc/net/snmp`. No se instala ningún programa de captura |
 
+## Qué es seguro y qué es una suposición
+
+El agente ve la red desde un computador conectado a ella, no desde el router. Por eso no todo lo que muestra tiene la
+misma certeza:
+
+| Qué | Certeza | Por qué |
+|---|---|---|
+| Redes Wi-Fi vecinas y su canal | **Medido** | Las detecta la tarjeta Wi-Fi del computador (`netsh` / `nmcli`) |
+| Latencia, jitter, pérdida, señal, tráfico de este computador | **Medido** | Conexiones reales y contadores del sistema |
+| Equipos que respondieron en la red local | **Medido, pero incompleto** | Están en la tabla ARP después del barrido. Un equipo dormido o que no responde puede faltar, y uno que acaba de salir puede seguir unos minutos |
+| «Este computador» y «Router» | **Seguro** | Son la IP del propio agente y la puerta de enlace del sistema |
+| Fabricante | **Deducido** de la MAC (OUI) | Dice quién fabricó la tarjeta, no qué equipo es ni de quién es; con MAC privada no se puede saber |
+| Nombre y modelo | **Lo que el equipo anuncia** (mDNS, UPnP, NetBIOS) | Lo eligió su dueño o el fabricante; un equipo puede anunciar cualquier nombre |
+| Tipo (celular, TV, impresora…) | **Suposición** | Sale del nombre, los servicios y los puertos que ofrece; la página lo muestra como «Parece…» |
+| Equipos confirmados por el router | **No disponible** | Solo el router sabe con certeza quién está conectado, y los routers de la casa y de la sede no ofrecen una API ni SNMP |
+
+Por eso existe el asistente **«¿Cuál es este equipo?»**: confirmar un equipo apagando su Wi-Fi es más fiable que
+cualquier suposición. WiFiSense nunca expulsa, bloquea ni interfiere equipos: para sacar a alguien de la red hay que
+cambiar la clave del Wi-Fi o bloquearlo en el router, y la página explica cómo.
+
 ## Privacidad y seguridad
 
 - Las direcciones MAC **no salen del computador**: se envía una huella SHA-256 con una sal aleatoria creada en esta

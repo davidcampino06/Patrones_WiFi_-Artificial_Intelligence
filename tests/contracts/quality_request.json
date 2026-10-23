@@ -1,0 +1,9 @@
+{
+  "latencyMs": 38.5,
+  "jitterMs": 4.2,
+  "packetLossPct": 0.4,
+  "downloadMbps": null,
+  "uploadMbps": null,
+  "contractedMbps": null,
+  "signalDbm": -58.0
+}

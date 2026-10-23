@@ -1,0 +1,18 @@
+{
+  "band": "2.4",
+  "channel": 6,
+  "channelCounts": [
+    {
+      "channel": 1,
+      "networks": 2
+    },
+    {
+      "channel": 6,
+      "networks": 7
+    },
+    {
+      "channel": 11,
+      "networks": 3
+    }
+  ]
+}
