@@ -12,6 +12,12 @@ class CamelModel(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
 
+class InputModel(CamelModel):
+    """What a client sends. NaN and infinity are rejected (422): a measurement must be a real number, and an infinite
+    latency would pass "greater than or equal to 0" and reach the model."""
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, allow_inf_nan=False)
+
+
 class Severity(str, Enum):
     NONE = "NONE"
     LOW = "LOW"
@@ -19,7 +25,7 @@ class Severity(str, Enum):
     HIGH = "HIGH"
 
 
-class MeasurementInput(CamelModel):
+class MeasurementInput(InputModel):
     latency: float = Field(ge=0, description="Latency in ms")
     jitter: float = Field(ge=0, description="Jitter in ms")
     packet_loss: float = Field(ge=0, le=100, description="Packet loss in %")
@@ -31,7 +37,7 @@ class MeasurementInput(CamelModel):
     timestamp: datetime | None = None
 
 
-class AnalysisRequest(CamelModel):
+class AnalysisRequest(InputModel):
     network_id: int
     simulated_data: bool = Field(description="True when measurements come from the simulation data source")
     measurements: list[MeasurementInput] = Field(min_length=1, max_length=1000)
@@ -68,7 +74,7 @@ class ModelInfo(CamelModel):
     trained_at: str | None = None
 
 
-class TrainingSample(CamelModel):
+class TrainingSample(InputModel):
     """One real measurement of a network (the same metrics the detector uses); only latency is required."""
     latency: float = Field(ge=0, le=10000)
     jitter: float | None = Field(default=None, ge=0, le=10000)
@@ -81,10 +87,10 @@ class TrainingSample(CamelModel):
     timestamp: datetime | None = None
 
 
-class TrainingRequest(CamelModel):
+class TrainingRequest(InputModel):
     version: str = Field(pattern=r"^[a-z0-9][a-z0-9.-]{2,39}$")
     samples: list[TrainingSample] = Field(min_length=1, max_length=20000)
-    seed: int = 42
+    seed: int = Field(default=42, ge=0, le=2**32 - 1)  # scikit-learn accepts seeds in this range
     activate: bool = Field(default=True, description="Replace the model in use if the new one is better")
     restore: bool = Field(default=False, description="Rebuild a model that was already promoted, without evaluating")
 

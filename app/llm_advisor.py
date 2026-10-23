@@ -1,6 +1,7 @@
 import logging
 import os
 import statistics
+from typing import Protocol
 
 import anthropic
 
@@ -24,6 +25,26 @@ SYSTEM_PROMPT = (
 )
 
 
+class Advisor(Protocol):
+    """Who writes the recommendation of a detected anomaly: the rules (always) or Claude (optional)."""
+
+    @property
+    def model(self) -> str: ...
+
+    def enrich(self, result: AnalysisResponse, request: AnalysisRequest) -> AnalysisResponse: ...
+
+
+class RuleAdvisor:
+    """<b>Null Object</b> of the advisor: without ANTHROPIC_API_KEY the recommendation written by the rules of the
+    diagnosis is kept as it is. The endpoints always have an advisor, so they never ask "is there one?", and that the
+    rules are the default (and the source when Claude fails) is explicit here instead of being a missing value."""
+
+    model = "reglas"
+
+    def enrich(self, result: AnalysisResponse, request: AnalysisRequest) -> AnalysisResponse:
+        return result
+
+
 class ClaudeAdvisor:
     """Optional generative recommendations. Only aggregated metrics are sent: no IPs, MACs or user data."""
 
@@ -36,11 +57,12 @@ class ClaudeAdvisor:
         return self._model
 
     @classmethod
-    def from_env(cls) -> "ClaudeAdvisor | None":
+    def from_env(cls) -> "Advisor":
+        """Claude when ANTHROPIC_API_KEY is set; otherwise the rules (the Null Object, never None)."""
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if not api_key:
             logger.info("ANTHROPIC_API_KEY not set: using rule-based recommendations")
-            return None
+            return RuleAdvisor()
         client = anthropic.Anthropic(api_key=api_key, timeout=20.0, max_retries=1)
         return cls(client, os.getenv("CLAUDE_MODEL", DEFAULT_MODEL))
 

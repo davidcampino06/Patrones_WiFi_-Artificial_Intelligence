@@ -3,7 +3,7 @@ from enum import Enum
 
 from pydantic import Field, model_validator
 
-from app.schemas import CamelModel
+from app.schemas import CamelModel, InputModel
 
 
 class QualityGrade(str, Enum):
@@ -19,7 +19,7 @@ class MetricStatus(str, Enum):
     POOR = "POOR"
 
 
-class QualityRequest(CamelModel):
+class QualityRequest(InputModel):
     latency_ms: float = Field(ge=0, le=10_000)
     jitter_ms: float = Field(ge=0, le=10_000)
     packet_loss_pct: float | None = Field(default=None, ge=0, le=100)

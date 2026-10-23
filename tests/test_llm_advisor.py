@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.llm_advisor import ClaudeAdvisor, build_prompt
+from app.llm_advisor import ClaudeAdvisor, RuleAdvisor, build_prompt
 from app.model_service import AnomalyDetectionService, generate_baseline
 from app.schemas import AnalysisRequest
 from tests.conftest import DEGRADED, NORMAL
@@ -68,10 +68,16 @@ def test_long_answers_are_truncated(detection):
     assert len(enriched.recommendation) == 1500
 
 
-def test_advisor_is_disabled_without_api_key(monkeypatch):
+def test_without_api_key_the_rules_advise_and_keep_the_result(monkeypatch, detection):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    result, request = detection
 
-    assert ClaudeAdvisor.from_env() is None
+    advisor = ClaudeAdvisor.from_env()
+
+    assert isinstance(advisor, RuleAdvisor)
+    assert advisor.model == "reglas"
+    assert advisor.enrich(result, request) is result
+    assert result.recommendation_source == "RULES"
 
 
 def test_prompt_includes_the_probable_cause(detection):
