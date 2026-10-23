@@ -1,16 +1,16 @@
 """Contract of POST /api/v1/channel/recommend (JSON in camelCase, like the rest of the service)."""
 from pydantic import Field
 
-from app.schemas import CamelModel
+from app.schemas import CamelModel, InputModel
 
 
-class ChannelCount(CamelModel):
+class ChannelCount(InputModel):
     """How many neighbouring access points (not counting the user's own network) the agent saw on one channel."""
     channel: int = Field(ge=1, le=233)
     networks: int = Field(ge=0, le=500)
 
 
-class ChannelRequest(CamelModel):
+class ChannelRequest(InputModel):
     """What the WiFiSense agent saw around the user's router. Without channel counts there is nothing to compare."""
     band: str | None = Field(default=None, pattern=r"^(2\.4|5|6)$", description="GHz band of the connection")
     channel: int | None = Field(default=None, ge=1, le=233, description="Channel the router uses now")
