@@ -3,7 +3,7 @@ from enum import Enum
 
 from pydantic import Field, field_validator
 
-from app.schemas import CamelModel
+from app.schemas import CamelModel, InputModel
 
 
 class Authentication(str, Enum):
@@ -30,7 +30,7 @@ class SecurityGrade(str, Enum):
     CRITICAL = "CRITICAL"
 
 
-class SecurityRequest(CamelModel):
+class SecurityRequest(InputModel):
     """What the WiFiSense agent saw on the user's network. Every field is optional: the agent reports what it could read."""
     authentication: Authentication = Authentication.UNKNOWN
     cipher: str | None = Field(default=None, max_length=20, description="CCMP, GCMP, TKIP...")
