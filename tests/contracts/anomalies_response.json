@@ -1,0 +1,34 @@
+{
+  "anomalyDetected": true,
+  "anomalyScore": 0.7302,
+  "severity": "HIGH",
+  "anomalyType": "INTERFERENCE",
+  "diagnosis": "Causa probable: interferencia de radio. Se pierden paquetes y el jitter sube aunque la señal es buena: el canal tiene ruido.",
+  "message": "Posible interferencia de radio: pérdida de paquetes, jitter, latencia",
+  "recommendation": "Cambia a un canal menos ocupado (preferiblemente en 5 GHz) y aleja el punto de acceso de microondas, cámaras inalámbricas y otras fuentes de ruido.",
+  "recommendationSource": "RULES",
+  "contributingFeatures": [
+    "packet_loss",
+    "jitter",
+    "latency"
+  ],
+  "featureDeviations": {
+    "latency": 4.76,
+    "jitter": 5.0,
+    "packet_loss": 39.82,
+    "bandwidth": -0.0,
+    "signal_strength": -0.18,
+    "traffic_volume": 0.0,
+    "connected_devices": -2.88,
+    "packet_count": 0.0
+  },
+  "anomalousSamples": 7,
+  "sampleSize": 12,
+  "imputedFeatures": [
+    "bandwidth",
+    "traffic_volume",
+    "packet_count"
+  ],
+  "modelVersion": "isolation-forest-1.1",
+  "simulatedData": false
+}
