@@ -1,6 +1,8 @@
 # Dependabot opens a Pull Request when a dependency has a new version (for example a security fix): the Python
 # packages of requirements.txt, the GitHub Actions of the workflows and the Docker base image. Once a month and at most
 # 3 at a time, so the team can review them.
+# The Docker image stays on the Python of the tests (3.13): a new Python version (3.15) has no ready-made packages yet
+# for every library (pandas 3.0.5, PyYAML), so Railway would have to compile them and the image would not build.
 version: 2
 updates:
   - package-ecosystem: pip
@@ -18,3 +20,6 @@ updates:
     schedule:
       interval: monthly
     open-pull-requests-limit: 2
+    ignore:
+      - dependency-name: "docker/library/python"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
