@@ -1,4 +1,4 @@
-FROM public.ecr.aws/docker/library/python:3.15-slim
+FROM public.ecr.aws/docker/library/python:3.13-slim
 
 WORKDIR /service
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 AI_MODEL_PATH=/service/models/anomaly_model.joblib
