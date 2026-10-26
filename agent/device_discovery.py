@@ -1,4 +1,4 @@
-"""Reconocer los equipos de la red (agente 1.7.0): qué nombre anuncian, qué modelo son y qué tipo de equipo parecen.
+"""Reconocer los equipos de la red (agente 1.8.0): qué nombre anuncian, qué modelo son y qué tipo de equipo parecen.
 
 Los celulares esconden su fabricante detrás de una MAC privada y muchos no anuncian un nombre por DNS ni NetBIOS. Lo
 que sí anuncian muchos equipos es lo que ofrecen en la red, para que otros los encuentren:
@@ -10,6 +10,11 @@ que sí anuncian muchos equipos es lo que ofrecen en la red, para que otros los 
   nombre, fabricante y modelo.
 * **Puertos abiertos**: un iPhone o iPad tiene abierto el 62078, un Chromecast el 8009, una impresora el 9100, una
   cámara el 554 (RTSP)… Se prueba solo si el puerto acepta conexión (sin enviar nada) y solo en la red local.
+* **DHCP** (agente 1.8.0): al conectarse, cada equipo pide su dirección con un mensaje a toda la red que incluye el
+  nombre que tiene configurado ("Galaxy-A54-de-Ana", "DESKTOP-7Q2M"). Es de donde el router saca la lista de equipos
+  conectados. El agente solo escucha esos mensajes (no responde ni pide nada) y recuerda el nombre de cada equipo
+  mientras está abierto. Necesita que Windows permita al agente recibirlos (la primera vez pregunta) y que la red no
+  bloquee los mensajes entre equipos, cosa que hacen muchas redes de universidades y lugares públicos.
 
 Con eso se deduce el **tipo** (PHONE, COMPUTER, TV, PRINTER, CAMERA, SPEAKER, CONSOLE o IOT), que siempre es una
 suposición. Nada de esto sale del computador salvo el nombre, el modelo y el tipo: la MAC sigue quedándose aquí.
@@ -20,6 +25,7 @@ import ipaddress
 import re
 import socket
 import struct
+import threading
 import time
 import urllib.request
 import xml.etree.ElementTree as ElementTree
@@ -83,6 +89,116 @@ NAME_KINDS = (
     (r"echo|alexa|google home|nest (mini|audio|hub)|homepod|sonos|speaker|parlante|bocina", "SPEAKER"),
     (r"bulb|bombillo|plug|enchufe|switch-|tuya|shelly|sonoff|esp[-_]", "IOT"),
 )
+
+
+# -------------------------------------------------------------------------------------------------------------- DHCP
+
+DHCP_SERVER_PORT = 67
+DHCP_MAGIC = b"\x63\x82\x53\x63"
+# Nombres que no dicen nada: los que pone el sistema solo (Android viejo, placas ESP de casa inteligente) o vacíos.
+GENERIC_DHCP_NAMES = re.compile(r"^(android-[0-9a-f]{6,}|localhost|unknown|espressif|esp[-_]?[0-9a-f]{4,}|"
+                                r"[0-9a-f]{12}|[0-9a-f:-]{17})$", re.I)
+
+
+def fqdn_first_label(value: bytes) -> Optional[str]:
+    """Opción 81 (FQDN del cliente): banderas, dos códigos y el nombre, en texto o en formato DNS (bandera E)."""
+    if len(value) < 4:
+        return None
+    flags, name = value[0], value[3:]
+    if flags & 0x04:  # formato de DNS: longitud + etiqueta
+        length = name[0]
+        return name[1:1 + length].decode("utf-8", "replace") if length else None
+    return name.decode("utf-8", "replace").split(".")[0]
+
+
+def parse_dhcp_request(data: bytes) -> Optional[dict]:
+    """De una solicitud DHCP (DISCOVER o REQUEST): la MAC del equipo, el nombre que dice y su clase de fabricante
+    ("android-dhcp-14", "MSFT 5.0"). None si el paquete no es una solicitud DHCP de Ethernet o Wi-Fi."""
+    if len(data) < 240 or data[0] != 1 or data[1] != 1 or data[2] != 6 or data[236:240] != DHCP_MAGIC:
+        return None
+    found = {"mac": ":".join(f"{b:02x}" for b in data[28:34])}
+    i = 240
+    while i < len(data):
+        code = data[i]
+        if code == 255:
+            break
+        if code == 0:
+            i += 1
+            continue
+        if i + 1 >= len(data):
+            break
+        length = data[i + 1]
+        value = data[i + 2:i + 2 + length]
+        i += 2 + length
+        if code == 12:
+            found["name"] = value.decode("utf-8", "replace")
+        elif code == 81 and "name" not in found:
+            label = fqdn_first_label(value)
+            if label:
+                found["fqdn"] = label
+        elif code == 60:
+            found["vendorClass"] = value.decode("ascii", "replace")
+    name = (found.pop("name", None) or found.pop("fqdn", None) or "").strip("\x00 .").strip()
+    found.pop("fqdn", None)
+    if name and not GENERIC_DHCP_NAMES.match(name):
+        found["name"] = name[:63]
+    return found
+
+
+def dhcp_kind(vendor_class: Optional[str]) -> Optional[str]:
+    """La clase de fabricante dice el sistema: 'android-dhcp-14' es un Android, 'MSFT 5.0' un Windows."""
+    text = (vendor_class or "").lower()
+    if text.startswith("android"):
+        return "PHONE"
+    if text.startswith("msft"):
+        return "COMPUTER"
+    return None
+
+
+class DhcpWatcher:
+    """Escucha en segundo plano las solicitudes DHCP de la red y recuerda, por MAC, el nombre y la clase de cada
+    equipo. Si el puerto 67 no se puede abrir (otro programa lo usa o el sistema no lo permite), no hace nada."""
+
+    def __init__(self) -> None:
+        self._seen: dict[str, dict] = {}
+        self._lock = threading.Lock()
+        self._started = False
+
+    def learn(self, data: bytes) -> None:
+        request = parse_dhcp_request(data)
+        if not request or ("name" not in request and "vendorClass" not in request):
+            return
+        with self._lock:
+            known = self._seen.setdefault(request["mac"], {})
+            known.update({k: v for k, v in request.items() if k != "mac"})
+
+    def snapshot(self) -> dict[str, dict]:
+        with self._lock:
+            return {mac: dict(info) for mac, info in self._seen.items()}
+
+    def start(self) -> bool:
+        if self._started:
+            return True
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind(("", DHCP_SERVER_PORT))
+        except OSError:
+            return False
+        self._started = True
+        threading.Thread(target=self._listen, args=(sock,), daemon=True).start()
+        return True
+
+    def _listen(self, sock: socket.socket) -> None:
+        while True:
+            try:
+                data, _ = sock.recvfrom(2048)
+            except OSError:
+                return
+            self.learn(data)
+
+
+DHCP = DhcpWatcher()
 
 
 # ---------------------------------------------------------------------------------------------------- mDNS / Bonjour
