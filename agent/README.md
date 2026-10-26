@@ -36,6 +36,21 @@ agente) y **«Router»** (la puerta de enlace). Si aun así no sabes cuál es tu
 **«¿Cuál es este equipo?»**: durante 10 minutos el agente reporta cada minuto en vez de cada 5; apagas el Wi-Fi del
 celular, la página ve cuál desapareció, lo enciendes, ve cuál volvió y le pones nombre.
 
+**El nombre que cada equipo dice al conectarse (1.8.0).** Al entrar a la red, cada equipo pide su dirección con un
+mensaje DHCP a toda la red que incluye el nombre que tiene configurado («Galaxy-A54-de-Ana», «DESKTOP-7Q2M»): es de
+donde el router saca su lista de equipos conectados. El agente ahora **escucha esos mensajes** (no responde ni pide
+nada), recuerda el nombre de cada equipo y lo envía con su huella; la MAC sigue sin salir del computador. Además, la
+clase que acompaña la solicitud («android-dhcp-14», «MSFT 5.0») ayuda a saber si es un Android o un Windows.
+
+- **Windows pregunta una vez** si permite que WiFiSenseAgente reciba conexiones: hay que elegir **Permitir** (en una
+  red pública, marcar también «Redes públicas»). Si se niega, el agente sigue funcionando sin esta fuente.
+- **Solo ve a los equipos que se conectan mientras el agente está abierto**: un celular que ya estaba conectado aparece
+  con nombre la próxima vez que se reconecte (al salir y volver, o al apagar y encender su Wi-Fi). El backend guarda el
+  nombre aprendido, así que no se pierde.
+- **Las redes con aislamiento de clientes** (muchas redes de universidades, hoteles y cafés) no dejan pasar los mensajes
+  de un equipo a otro: ahí solo el router conoce los nombres. Los celulares con «dirección privada» y sin nombre
+  configurado tampoco dicen uno. Para esos equipos queda **«¿Cuál es este equipo?»** y el lápiz para nombrarlos.
+
 **Actualizar sin código (1.7.0).** Si el programa descargado es más nuevo que el instalado, la ventana muestra
 **«Actualizar a la versión X»**: detiene el agente, reemplaza el programa y lo vuelve a iniciar. Las claves y las redes
 ya agregadas se conservan; no hace falta ningún código.
@@ -105,6 +120,7 @@ Si Windows no deja leer los datos del Wi-Fi: Configuración → Privacidad y seg
 | Equipos conectados | un datagrama vacío a cada dirección de la red para llenar la tabla ARP y luego `arp -a` |
 | Fabricante de cada equipo | primeros 3 bytes de la MAC (OUI) en una tabla de ~180 fabricantes comunes |
 | Nombre de cada equipo | DNS inverso, NetBIOS (Windows) y mDNS/Bonjour (iPhone, Mac, Chromecast, impresoras) |
+| Nombre que dice cada equipo al pedir dirección (desde 1.8.0) | mensajes DHCP de la red (puerto 67, solo se escuchan) |
 | Tipo y modelo de cada equipo (desde 1.7.0) | servicios mDNS que anuncia, descripción UPnP (SSDP) y algunos puertos típicos (62078 iPhone, 8009 TV, 9100 impresora, 554 cámara…). Se revisa como máximo cada 30 minutos, o antes si aparece un equipo nuevo |
 | MAC privada | bit de «administración local»: celulares y tabletas que usan una MAC aleatoria en cada red |
 | Puertos abiertos en el router | intento de conexión a 21, 22, 23, 53, 80, 443, 445, 1900, 7547, 8080 y 8443 |
