@@ -46,7 +46,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable, Optional
 
-AGENT_VERSION = "1.7.0"
+AGENT_VERSION = "1.8.0"
 DEFAULT_SERVER = "https://patroneswifibackend-production.up.railway.app"
 REPORT_PATH = "/api/agent/reports"
 PAIR_PATH = "/api/agent/pair"
@@ -616,7 +616,7 @@ def identities(by_ip: dict[str, str], own_ip: str, gateway: Optional[str], now: 
 def devices(own_ip: Optional[str], salt: str, wait: float = 2.0, gateway: Optional[str] = None) -> list[dict]:
     """Equipos conectados a la red (incluido este), como {huella, fabricante, nombre}. La huella es SHA-256 con sal:
     la MAC no sale del computador. El fabricante viene del OUI de la MAC y el nombre del equipo (como en el Bluetooth
-    o la zona Wi-Fi) se resuelve por DNS inverso, NetBIOS o mDNS; cualquiera de los dos puede faltar. Si la MAC es
+    o la zona Wi-Fi) de lo que anuncia, de su solicitud DHCP o de DNS inverso, NetBIOS o mDNS; cualquiera puede faltar. Si la MAC es
     privada (aleatoria) se marca, porque casi siempre es un celular o una tableta."""
     if not own_ip:
         return []
@@ -631,6 +631,9 @@ def devices(own_ip: Optional[str], salt: str, wait: float = 2.0, gateway: Option
     # Los nombres se resuelven en paralelo porque cada uno puede tardar hasta un segundo.
     with ThreadPoolExecutor(max_workers=min(len(by_ip), 32) or 1) as pool:
         names = dict(zip(by_ip, pool.map(hostname_of, by_ip)))
+    # Lo que cada equipo dijo al pedir dirección (DHCP): se escucha desde el primer reporte y se acumula.
+    discovery.DHCP.start()
+    dhcp = discovery.DHCP.snapshot()
     try:
         announced = identities(by_ip, own_ip, gateway)
     except Exception as error:  # reconocer equipos es un extra: si falla, se envían como antes
@@ -639,13 +642,16 @@ def devices(own_ip: Optional[str], salt: str, wait: float = 2.0, gateway: Option
     found = []
     for ip, mac in sorted(by_ip.items(), key=lambda item: item[1]):
         found.append(describe_device(ip, mac, salt, own_ip, gateway, own_name if ip == own_ip else names.get(ip),
-                                     announced.get(mac, {})))
+                                     announced.get(mac, {}), dhcp.get(mac, {})))
     return found[:MAX_DEVICES]
 
 
 def describe_device(ip: str, mac: str, salt: str, own_ip: str, gateway: Optional[str], hostname: Optional[str],
-                    announced: dict) -> dict:
-    """Lo que se envía de un equipo: su huella (nunca la MAC), fabricante, nombre, modelo, tipo y papel."""
+                    announced: dict, dhcp: Optional[dict] = None) -> dict:
+    """Lo que se envía de un equipo: su huella (nunca la MAC), fabricante, nombre, modelo, tipo y papel. El nombre
+    sale, en este orden, de lo que anuncia por mDNS o UPnP, de lo que dijo al pedir dirección (DHCP) o de la red
+    (DNS inverso, NetBIOS o mDNS)."""
+    dhcp = dhcp or {}
     device = {"id": mac_fingerprint(mac, salt)}
     vendor = vendor_of(mac)
     private = not vendor and is_private_mac(mac)
@@ -654,7 +660,7 @@ def describe_device(ip: str, mac: str, salt: str, own_ip: str, gateway: Optional
     elif private:
         device["privateMac"] = True  # casi siempre un celular o tableta con la MAC aleatoria activada
     # El nombre que el equipo anuncia por mDNS o UPnP ("iPhone de Ana", "Sala TV") es el que la persona le puso.
-    name = announced.get("name") or hostname
+    name = announced.get("name") or clean_hostname(dhcp.get("name"), ip) or hostname
     if name:
         device["name"] = name[:63]
     if announced.get("model"):
@@ -664,7 +670,8 @@ def describe_device(ip: str, mac: str, salt: str, own_ip: str, gateway: Optional
     elif ip == gateway:
         device["role"] = "ROUTER"
     else:
-        kind = discovery.decide_kind(name, announced.get("model"), vendor, announced.get("kinds", []), private)
+        hints = announced.get("kinds", []) + [k for k in [discovery.dhcp_kind(dhcp.get("vendorClass"))] if k]
+        kind = discovery.decide_kind(name, announced.get("model"), vendor, hints, private)
         if kind:
             device["kind"] = kind
     return device
