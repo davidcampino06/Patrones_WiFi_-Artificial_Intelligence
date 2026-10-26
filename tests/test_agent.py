@@ -210,10 +210,24 @@ def test_vendor_comes_from_the_mac_oui(mac, vendor):
     assert agent.vendor_of(mac) == vendor
 
 
+class QuietDhcp:
+    """Stands in for the DHCP listener: it never opens port 67 and knows the names it is given."""
+
+    def __init__(self, seen=None):
+        self.seen = seen or {}
+
+    def start(self):
+        return False
+
+    def snapshot(self):
+        return dict(self.seen)
+
+
 def test_devices_carry_a_fingerprint_vendor_and_name(monkeypatch):
     monkeypatch.setattr(agent, "wake_neighbors", lambda ip: None)
     monkeypatch.setattr(agent.time, "sleep", lambda _s: None)
     monkeypatch.setattr(agent, "identities", lambda *args, **kwargs: {})  # no real mDNS, UPnP or port probes
+    monkeypatch.setattr(agent.discovery, "DHCP", QuietDhcp())  # no real DHCP listener in the tests
     monkeypatch.setattr(agent, "IS_WINDOWS", False)
     monkeypatch.setattr(agent, "read_file", lambda _p: (
         "IP address       HW type     Flags       HW address            Mask     Device\n"
@@ -277,6 +291,7 @@ def test_devices_mark_private_macs_without_vendor(monkeypatch):
     monkeypatch.setattr(agent, "wake_neighbors", lambda ip: None)
     monkeypatch.setattr(agent.time, "sleep", lambda _s: None)
     monkeypatch.setattr(agent, "identities", lambda *args, **kwargs: {})  # no real mDNS, UPnP or port probes
+    monkeypatch.setattr(agent.discovery, "DHCP", QuietDhcp())  # no real DHCP listener in the tests
     monkeypatch.setattr(agent, "IS_WINDOWS", False)
     monkeypatch.setattr(agent, "read_file", lambda _p: (
         "IP address       HW type     Flags       HW address            Mask     Device\n"
@@ -656,3 +671,26 @@ def test_traffic_is_not_mixed_between_two_networks(tmp_path, monkeypatch):
 
     assert "trafficBytes" not in reports[0]  # the previous counters were of the other network
     assert agent.load_traffic_state(state)["network"] == LAB[:12]
+
+
+def test_the_name_a_phone_gave_when_asking_for_an_address_is_used(monkeypatch):
+    monkeypatch.setattr(agent, "wake_neighbors", lambda ip: None)
+    monkeypatch.setattr(agent.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(agent, "identities", lambda *args, **kwargs: {})
+    monkeypatch.setattr(agent, "IS_WINDOWS", False)
+    monkeypatch.setattr(agent, "read_file", lambda _p: (
+        "IP address       HW type     Flags       HW address            Mask     Device\n"
+        "192.168.1.5      0x1         0x2         da:a1:19:00:00:01     *        wlan0\n"
+        "192.168.1.6      0x1         0x2         fc:fb:fb:11:22:33     *        wlan0\n"))
+    monkeypatch.setattr(agent, "own_mac", lambda: None)
+    monkeypatch.setattr(agent, "hostname_of", lambda ip: {"192.168.1.6": "iphone-dns"}.get(ip))
+    monkeypatch.setattr(agent.discovery, "DHCP", QuietDhcp({
+        "da:a1:19:00:00:01": {"name": "Galaxy-A54-de-Ana", "vendorClass": "android-dhcp-14"},
+        "fc:fb:fb:11:22:33": {"name": "iPhone-de-Luis"},
+    }))
+
+    found = {d.get("vendor"): d for d in agent.devices("192.168.1.2", "sal", wait=0)}
+
+    assert found[None]["name"] == "Galaxy-A54-de-Ana"  # MAC privada: sin DHCP no tendría nombre
+    assert found[None]["kind"] == "PHONE"
+    assert found["Apple"]["name"] == "iPhone-de-Luis"  # lo que dice el equipo gana al DNS de la red
