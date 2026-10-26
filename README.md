@@ -45,7 +45,9 @@ tests/                preprocesamiento, modelo, diagnóstico, escenarios, evalua
 tests/contracts/      ejemplos JSON del contrato con el backend (los mismos que usa WiFiSense-backend)
 agent/                agente WiFiSense que corre en la casa del usuario e instalador para Windows (ver agent/README.md)
 .github/workflows/    servicio-ia.yml (pruebas, pip-audit e imagen en cada Pull Request) y agente-windows.yml (instalador)
-.github/dependabot.yml  actualizaciones mensuales de pip, acciones y Docker
+.github/scripts/      construir-imagen.sh: construye la imagen de Railway con hasta 3 intentos (el registro de la imagen
+                      base a veces rechaza la descarga un momento) y escribe la causa de cada falla en el Pull Request
+.github/dependabot.yml  actualizaciones mensuales de pip, acciones y Docker (sin cambiar la versión de Python de la imagen)
 ```
 
 ## Modelo
@@ -236,7 +238,7 @@ pip install -r requirements.txt
 cp .env.example .env                       # AI_API_KEY igual a la del backend
 export $(grep -v '^#' .env | xargs)
 uvicorn app.main:app --port 8000
-pytest                                     # 263 pruebas (2 solo corren en Windows)
+pytest                                     # 265 pruebas (2 solo corren en Windows y 2 solo en Linux)
 python load-tests/carga_ia.py --clientes 10  # prueba de carga (AI_API_KEY en el entorno)
 python -m app.evaluation                   # imprime la evaluación en Markdown
 docker build -t wifisense-ai . && docker run -p 8000:8000 -e AI_API_KEY=... wifisense-ai
