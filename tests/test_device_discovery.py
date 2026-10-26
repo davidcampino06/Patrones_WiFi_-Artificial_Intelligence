@@ -1,4 +1,5 @@
-"""Reconocer los equipos (agente 1.7.0): lo que anuncian por mDNS y UPnP, sus puertos y el tipo que se deduce."""
+"""Reconocer los equipos (agente 1.7.0 y 1.8.0): lo que anuncian por mDNS y UPnP, sus puertos, el tipo que se deduce y
+el nombre que dicen al pedir dirección por DHCP."""
 import socket
 import struct
 
@@ -140,3 +141,48 @@ def test_the_report_lists_the_devices_it_recognized():
     text = agent.describe({"deviceCount": 2, "openPorts": [], "devices": [
         {"id": "a" * 24, "name": "Sala TV", "kind": "TV"}, {"id": "b" * 24}]})
     assert "Equipos reconocidos: Sala TV (televisor)" in text
+
+
+# ----------------------------------------------------------------------------------------------------- DHCP (1.8.0)
+
+def dhcp_request(mac: str, *options: tuple[int, bytes], op: int = 1) -> bytes:
+    """A DHCP request as a phone sends it when it joins the network (BOOTP header, magic cookie and options)."""
+    header = bytes([op, 1, 6, 0]) + b"\x12\x34\x56\x78" + b"\x00" * 20 + bytes.fromhex(mac.replace(":", "")) \
+        + b"\x00" * 10 + b"\x00" * 192
+    body = b"".join(bytes([code, len(value)]) + value for code, value in options)
+    return header + discovery.DHCP_MAGIC + bytes([53, 1, 3]) + body + b"\xff"
+
+
+def test_a_dhcp_request_gives_the_mac_the_name_and_the_vendor_class():
+    packet = dhcp_request("da:a1:19:00:00:01", (12, b"Galaxy-A54-de-Ana"), (60, b"android-dhcp-14"))
+
+    assert discovery.parse_dhcp_request(packet) == {
+        "mac": "da:a1:19:00:00:01", "name": "Galaxy-A54-de-Ana", "vendorClass": "android-dhcp-14"}
+    assert discovery.dhcp_kind("android-dhcp-14") == "PHONE"
+    assert discovery.dhcp_kind("MSFT 5.0") == "COMPUTER"
+
+
+def test_the_fqdn_option_names_a_device_without_option_12():
+    wire = b"\x04\x00\x00" + bytes([12]) + b"DESKTOP-7Q2M" + bytes([4]) + b"home" + b"\x00"  # formato DNS (bandera E)
+    text = b"\x00\x00\x00" + b"PC-SALA.casa.lan"
+
+    assert discovery.parse_dhcp_request(dhcp_request("3c:97:0e:00:00:03", (81, wire)))["name"] == "DESKTOP-7Q2M"
+    assert discovery.parse_dhcp_request(dhcp_request("3c:97:0e:00:00:03", (81, text)))["name"] == "PC-SALA"
+
+
+def test_generic_names_and_other_packets_are_ignored():
+    generic = dhcp_request("da:a1:19:00:00:01", (12, b"android-5f3a9c0e21b4d7aa"))
+    reply = dhcp_request("da:a1:19:00:00:01", (12, b"router"), op=2)
+
+    assert "name" not in discovery.parse_dhcp_request(generic)
+    assert discovery.parse_dhcp_request(reply) is None  # una respuesta del servidor, no un equipo
+    assert discovery.parse_dhcp_request(b"\x01" * 100) is None
+
+
+def test_the_watcher_remembers_each_device_and_keeps_its_name():
+    watcher = discovery.DhcpWatcher()
+    watcher.learn(dhcp_request("da:a1:19:00:00:01", (12, b"iPhone-de-Ana")))
+    watcher.learn(dhcp_request("da:a1:19:00:00:01", (60, b"apple")))  # una renovación sin nombre no lo borra
+    watcher.learn(b"basura")
+
+    assert watcher.snapshot() == {"da:a1:19:00:00:01": {"name": "iPhone-de-Ana", "vendorClass": "apple"}}
