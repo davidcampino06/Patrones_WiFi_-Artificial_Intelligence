@@ -239,7 +239,7 @@ pip install -r requirements.txt
 cp .env.example .env                       # AI_API_KEY igual a la del backend
 export $(grep -v '^#' .env | xargs)
 uvicorn app.main:app --port 8000
-pytest                                     # 267 pruebas (2 solo corren en Windows y 3 solo en Linux)
+pytest                                     # 272 pruebas (2 solo corren en Windows y 3 solo en Linux)
 python load-tests/carga_ia.py --clientes 10  # prueba de carga (AI_API_KEY en el entorno)
 python -m app.evaluation                   # imprime la evaluación en Markdown
 docker build -t wifisense-ai . && docker run -p 8000:8000 -e AI_API_KEY=... wifisense-ai
@@ -259,7 +259,8 @@ muestra los equipos conectados de esa red. Desde 1.6.0 un computador puede medir
 la clave del Wi-Fi en el que está. El instalador (1.5.0 reinstala aunque el agente esté en marcha) se prueba en
 Windows real en cada Pull Request que cambie el agente (`.github/workflows/agente-windows.yml`) y se publica al llegar a
 `main`. Desde 1.7.0 el agente reconoce el tipo de cada equipo (mDNS, UPnP y servicios), marca su propio computador
-y el router, reporta cada minuto mientras el usuario identifica un equipo y se actualiza sin código.
+y el router, reporta cada minuto mientras el usuario identifica un equipo y se actualiza sin código. Desde 1.8.0
+también escucha las solicitudes DHCP de la red para conocer el nombre que cada equipo dice al conectarse.
 
 El backend entrena el modelo con las mediciones reales cada semana (o cuando un administrador lo pide) y guarda cada
 versión con sus métricas en `ai_model_versions`; si este servicio se redespliega, el backend le reconstruye la
