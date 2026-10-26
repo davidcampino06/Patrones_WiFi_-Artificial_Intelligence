@@ -1,4 +1,7 @@
-FROM public.ecr.aws/docker/library/python:3.13-slim
+# Official Python image. Railway downloads it from public.ecr.aws (Docker Hub limits anonymous downloads); the GitHub
+# check may take the same image from another mirror (--build-arg PYTHON_IMAGE, see .github/scripts/construir-imagen.sh).
+ARG PYTHON_IMAGE=public.ecr.aws/docker/library/python:3.13-slim
+FROM ${PYTHON_IMAGE}
 
 WORKDIR /service
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 AI_MODEL_PATH=/service/models/anomaly_model.joblib
