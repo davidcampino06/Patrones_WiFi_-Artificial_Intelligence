@@ -1,6 +1,6 @@
 # Checks every change of the AI service before it reaches Railway: all the tests (model, training, diagnosis, quality,
 # security, channel, agent and API), the known vulnerabilities of the Python packages and the Docker image Railway
-# builds (with retries, because the registry of its base image sometimes refuses a download for a moment). The Windows
+# builds (from a mirror of its base image, because public.ecr.aws limits the downloads of GitHub machines). The Windows
 # installer of the agent has its own workflow (agente-windows.yml). Runs on every Pull Request and on main.
 name: Servicio de IA
 
@@ -40,7 +40,8 @@ jobs:
           python -m pip install pip-audit
           pip-audit -r requirements.txt
 
-      # public.ecr.aws sometimes refuses the base image for a moment: the script tries up to 3 times and writes the
-      # cause of each failed attempt as an annotation (see .github/scripts/construir-imagen.sh).
+      # public.ecr.aws limits anonymous downloads ("429 Data limit exceeded") and GitHub machines share addresses: the
+      # script takes the same official Python image from mirror.gcr.io first, falls back to public.ecr.aws, retries
+      # and writes the cause of each failed attempt as an annotation (see .github/scripts/construir-imagen.sh).
       - name: Construir la imagen de Railway
         run: bash .github/scripts/construir-imagen.sh
