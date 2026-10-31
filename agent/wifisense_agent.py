@@ -630,10 +630,11 @@ def devices(own_ip: Optional[str], salt: str, wait: float = 2.0, gateway: Option
     except Exception as error:  # reconocer equipos es un extra: si falla, se envían como antes
         print(f"  aviso: no se pudo identificar los equipos: {error}", file=sys.stderr)
         announced = {}
+    from_router = router_names(gateway, [ip for ip in by_ip if ip not in (own_ip, gateway)])
     found = []
     for ip, mac in sorted(by_ip.items(), key=lambda item: item[1]):
         found.append(describe_device(ip, mac, salt, own_ip, gateway, own_name if ip == own_ip else names.get(ip),
-                                     announced.get(mac, {}), dhcp.get(mac, {})))
+                                     announced.get(mac, {}), dhcp.get(mac, {}), from_router.get(ip)))
     return found[:MAX_DEVICES]
 
 
@@ -651,11 +652,20 @@ def router_names(gateway: Optional[str], ips: list[str], source_factory=None) ->
         return {}
 
 
+def same_name(first: Optional[str], second: Optional[str]) -> bool:
+    """«Portatil-de-Ana» y «portatil-de-ana.lan» son el mismo nombre."""
+    def plain(name: Optional[str]) -> str:
+        return re.sub(r"[^a-z0-9]", "", (name or "").lower().split(".")[0])
+    return bool(plain(first)) and plain(first) == plain(second)
+
+
 def describe_device(ip: str, mac: str, salt: str, own_ip: str, gateway: Optional[str], hostname: Optional[str],
-                    announced: dict, dhcp: Optional[dict] = None) -> dict:
+                    announced: dict, dhcp: Optional[dict] = None, router_name: Optional[str] = None) -> dict:
     """Lo que se envía de un equipo: su huella (nunca la MAC), fabricante, nombre, modelo, tipo y papel. El nombre
-    sale, en este orden, de lo que anuncia por mDNS o UPnP, de lo que dijo al pedir dirección (DHCP) o de la red
-    (DNS inverso, NetBIOS o mDNS)."""
+    sale, en este orden, de lo que anuncia por mDNS o UPnP, de lo que dijo al pedir dirección (DHCP), del DNS del
+    router o de la red (DNS inverso, NetBIOS o mDNS). Desde la 2.0.0 se dice de dónde salió (nameSource):
+    ANNOUNCED (lo dijo el equipo), ROUTER (lo dijo el router), DNS (lo dijo la red) o CONFIRMED (el equipo y el
+    router dicen lo mismo). El fabricante por la MAC es una estimación y nunca se presenta como el nombre."""
     dhcp = dhcp or {}
     device = {"id": mac_fingerprint(mac, salt)}
     vendor = vendor_of(mac)
@@ -665,9 +675,19 @@ def describe_device(ip: str, mac: str, salt: str, own_ip: str, gateway: Optional
     elif private:
         device["privateMac"] = True  # casi siempre un celular o tableta con la MAC aleatoria activada
     # El nombre que el equipo anuncia por mDNS o UPnP ("iPhone de Ana", "Sala TV") es el que la persona le puso.
-    name = announced.get("name") or clean_hostname(dhcp.get("name"), ip) or hostname
+    own_name = announced.get("name") or clean_hostname(dhcp.get("name"), ip)
+    from_router = clean_hostname(router_name, ip)
+    name = own_name or from_router or hostname
     if name:
         device["name"] = name[:63]
+        if own_name and from_router and same_name(own_name, from_router):
+            device["nameSource"] = "CONFIRMED"
+        elif own_name:
+            device["nameSource"] = "ANNOUNCED"
+        elif from_router:
+            device["nameSource"] = "ROUTER"
+        else:
+            device["nameSource"] = "DNS"
     if announced.get("model"):
         device["model"] = announced["model"][:63]
     if ip == own_ip:
