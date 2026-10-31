@@ -110,3 +110,72 @@ def parse_ptr_answer(data: bytes) -> tuple[int, Optional[str]]:
             return query_id, name or None
         offset += length
     return query_id, None
+
+
+class GatewayDnsSource:
+    """Pregunta al DNS del router el nombre de cada IP, todas de una vez por el mismo socket (rápido aunque sean
+    cientos), y espera como mucho ``timeout`` segundos en total."""
+    code = "GATEWAY_DNS"
+
+    def __init__(self, gateway: str, timeout: float = 1.5, port: int = DNS_PORT,
+                 clock=time.monotonic, sock_factory=None):
+        self.gateway, self.timeout, self.port, self.clock = gateway, timeout, port, clock
+        self.sock_factory = sock_factory or (lambda: socket.socket(socket.AF_INET, socket.SOCK_DGRAM))
+
+    def names(self, ips: Iterable[str]) -> dict[str, str]:
+        pending: dict[int, str] = {}
+        found: dict[str, str] = {}
+        with self.sock_factory() as sock:
+            sock.settimeout(0.2)
+            used = set()
+            for ip in list(ips)[:MAX_QUERIES]:
+                query_id = random.randrange(1, 0xFFFF)
+                while query_id in used:
+                    query_id = random.randrange(1, 0xFFFF)
+                used.add(query_id)
+                try:
+                    sock.sendto(ptr_query(ip, query_id), (self.gateway, self.port))
+                    pending[query_id] = ip
+                except (OSError, ValueError):
+                    continue
+            end = self.clock() + self.timeout
+            while pending and self.clock() < end:
+                try:
+                    data, sender = sock.recvfrom(1500)
+                except socket.timeout:
+                    continue
+                except OSError:
+                    break
+                if sender[0] != self.gateway:  # solo cuenta lo que responde el router mismo
+                    continue
+                try:
+                    query_id, name = parse_ptr_answer(data)
+                except (ValueError, struct.error):
+                    continue
+                ip = pending.pop(query_id, None)
+                if ip and name:
+                    found[ip] = name
+        return found
+
+    def clients(self) -> list[dict]:
+        raise NotSupported("La lista oficial de clientes necesita una integración con el router.")
+
+    def block(self, device: str) -> None:
+        raise NotSupported("Bloquear un equipo se hace en el router: WiFiSense no tiene integración con este modelo.")
+
+
+def source_for(gateway: Optional[str], vendor: Optional[str] = None, model: Optional[str] = None
+               ) -> Optional[RouterSource]:
+    """La fuente para este router. Hoy, para cualquier fabricante, solo la lectura de nombres por su DNS; cuando
+    exista una integración oficial de un modelo, se elegiría aquí por ``vendor`` y ``model``."""
+    if not gateway:
+        return None
+    return GatewayDnsSource(gateway)
+
+
+SUPPORTED_OPERATIONS = {
+    "READ_NAMES": True,       # por el DNS del router, sin clave
+    "LIST_CLIENTS": False,    # necesita integración oficial
+    "BLOCK_DEVICE": False,    # necesita integración oficial
+    "CHANGE_PASSWORD": False,  # nunca desde WiFiSense: se hace en el router
+}
