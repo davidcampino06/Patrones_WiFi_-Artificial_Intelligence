@@ -202,3 +202,30 @@ def connected_bssid(interfaces_text: str) -> Optional[str]:
             mac = value.strip().lower().replace("-", ":")
             bssid = mac if MAC.match(mac) else None
     return bssid if state and bssid else None
+
+
+# ------------------------------------------------------------------------------------------------- lectura (nmcli)
+
+NMCLI_FIELDS = "IN-USE,BSSID,SSID,CHAN,FREQ,SIGNAL,SECURITY"
+
+
+def parse_nmcli_scan(text: str) -> list[dict]:
+    """Puntos de acceso de 'nmcli -t -f IN-USE,BSSID,SSID,CHAN,FREQ,SIGNAL,SECURITY dev wifi list'."""
+    found = []
+    for line in (text or "").splitlines():
+        parts = split_nmcli(line)
+        if len(parts) < 7:
+            continue
+        in_use, mac, ssid, chan, freq, signal, security = parts[:7]
+        mac = mac.strip().lower()
+        if not MAC.match(mac):
+            continue
+        freq_mhz = first_number(freq)
+        security = security.strip()
+        ap = access_point({"mac": mac, "ssid": clean_ssid(ssid), "channel": chan, "signal": signal,
+                           "band": f"{freq_mhz / 1000:.1f}" if freq_mhz else "",
+                           "authentication": security if security and security != "--" else "OPEN"})
+        ap["securityLabel"] = security[:40] if security and security != "--" else None
+        ap["connected"] = in_use.strip() == "*"
+        found.append(ap)
+    return found
