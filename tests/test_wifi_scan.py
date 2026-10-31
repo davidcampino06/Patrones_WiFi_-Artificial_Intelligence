@@ -158,3 +158,37 @@ def test_a_console_that_damaged_the_accents_is_still_read():
 
     assert access_points[0]["signalPercent"] == 72
     assert access_points[0]["authentication"] == "WPA3"
+
+
+def test_what_the_system_did_not_say_stays_unknown():
+    text = """Interface name : Wi-Fi
+SSID 1 : Minima
+    BSSID 1                 : 10:20:30:40:50:60
+"""
+    _, (ap,) = wifi_scan.parse_netsh_scan(text)
+
+    assert ap["signalPercent"] is None and ap["signalDbm"] is None
+    assert ap["channel"] is None and ap["band"] is None and ap["radioType"] is None
+    assert ap["authentication"] == "UNKNOWN" and ap["securityLabel"] is None and ap["cipher"] is None
+
+
+def test_values_out_of_range_and_malformed_bssids_are_dropped():
+    text = """Interface name : Wi-Fi
+SSID 1 : Rara
+    Authentication          : WPA2-Personal
+    BSSID 1                 : no-es-una-mac
+         Signal             : 88%
+    BSSID 2                 : 10:20:30:40:50:61
+         Signal             : 140%
+         Channel            : 999
+"""
+    _, access_points = wifi_scan.parse_netsh_scan(text)
+
+    assert len(access_points) == 1
+    assert access_points[0]["signalPercent"] is None and access_points[0]["channel"] is None
+
+
+def test_control_characters_in_a_name_are_removed():
+    assert wifi_scan.clean_ssid("Red\x00\x1b[31m roja\t") == "Red[31m roja"
+    assert wifi_scan.clean_ssid("   ") is None
+    assert len(wifi_scan.clean_ssid("x" * 100)) == 64
