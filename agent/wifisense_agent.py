@@ -1161,6 +1161,31 @@ def run_scan(scan_id: int, server: str, key: str, salt: str, opener=urllib.reque
     return result
 
 
+def wait_watching_scans(seconds: int, server: str, key: str, salt: str, sleep: Callable[[float], None] = time.sleep,
+                        clock: Callable[[], float] = time.monotonic, opener=urllib.request.urlopen) -> None:
+    """Espera hasta el próximo reporte, preguntando cada 30 segundos si el usuario pidió escanear las redes cercanas
+    (así el botón de la página responde en menos de un minuto). Una consulta fallida no cambia la espera; si el
+    servidor no ofrece escaneos a esta clave (404), no se vuelve a preguntar hasta el próximo reporte."""
+    end = clock() + seconds
+    asking = True
+    while True:
+        left = end - clock()
+        if left <= 0:
+            return
+        sleep(min(SCAN_POLL_SECONDS, left) if asking else left)
+        if not asking or clock() >= end:
+            continue
+        try:
+            scan_id = next_scan(server, key, opener=opener)
+            if scan_id is not None:
+                run_scan(scan_id, server, key, salt, opener=opener)
+        except ScansUnavailable:
+            asking = False
+        except SendError as error:
+            if error.retry_after:
+                sleep(min(error.retry_after, max(end - clock(), 0)))
+
+
 CODE_PATTERN = re.compile(r"^[A-HJKMNP-Z2-9]{8}$")
 
 
@@ -1434,7 +1459,10 @@ def command_run(args) -> int:
                 wait = max(interval, error.retry_after or 0)
         if args.once:
             return 0 if sent else 1
-        time.sleep(wait)
+        if sent:
+            wait_watching_scans(wait, config["server"], network["key"], salt)
+        else:
+            time.sleep(wait)
 
 
 def main(argv: Optional[list[str]] = None) -> int:
