@@ -92,6 +92,13 @@ El código está en `agent/wifi_scan.py` (con `NetshScanner` y `NmcliScanner`, d
 devuelven el mismo resultado) y la forma de leer los textos de `netsh`/`nmcli`, que comparten la medición y el
 escaneo, en `agent/wifi_text.py`.
 
+**Nombres de los equipos: de dónde salen (2.0.0).** Además de lo que el equipo anuncia (mDNS, UPnP, NetBIOS, DHCP), el
+agente le pregunta el nombre de cada IP **directamente al DNS del router** (`router_sources.py`): muchos routers
+(dnsmasq: TP-Link, ASUS, OpenWrt y varios del operador) responden el nombre que cada equipo dio al pedir dirección.
+No usa la clave del router. Cada nombre va con su origen (`nameSource`): `ANNOUNCED` (lo dijo el equipo), `ROUTER` (lo
+dijo el router), `CONFIRMED` (el equipo y el router dicen lo mismo) o `DNS` (lo dijo la red). El fabricante por la MAC
+es una estimación y nunca se presenta como el nombre.
+
 **Actualizar sin código (1.7.0).** Si el programa descargado es más nuevo que el instalado, la ventana muestra
 **«Actualizar a la versión X»**: detiene el agente, reemplaza el programa y lo vuelve a iniciar. Las claves y las redes
 ya agregadas se conservan; no hace falta ningún código.
