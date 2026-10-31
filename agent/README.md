@@ -57,6 +57,18 @@ reporte. Entre reportes, el agente pregunta cada 30 segundos si alguien pidió e
 de un minuto. De cada punto de acceso (BSSID) llega el nombre de la red, la señal, el canal, la banda, el tipo de radio
 y la seguridad que anuncia.
 
+- **Cómo:** en Windows le pide al sistema un escaneo nuevo (`WlanScan` de `wlanapi.dll`, sin permisos de administrador
+  ni nada que instalar) y unos segundos después lee `netsh wlan show networks mode=bssid`; si Windows no acepta el
+  escaneo nuevo, lee la última lista que tenga y la página lo dice («lista que ya tenía el sistema»). En Linux usa
+  `nmcli dev wifi list --rescan yes`. Los comandos se ejecutan con sus argumentos por separado, nunca con el shell, y
+  con 20 segundos de límite.
+- **Lo que no se inventa:** si el sistema no da un dato (Windows 10 no dice la banda; ninguno da la señal en dBm con
+  `netsh`), queda vacío. La banda solo se deduce del canal cuando el canal es de 2,4 GHz o de 5 GHz.
+- **Privacidad:** el BSSID tampoco sale del computador: se envía su huella con la misma sal de los equipos y solo su
+  último byte («termina en …:F1»), para que reconozcas tu router por la etiqueta. El fabricante se envía solo si el
+  BSSID es el de fábrica. Nunca se leen ni se exportan las contraseñas de los perfiles Wi-Fi.
+- **Ver una red no la hace tuya:** son solo las redes que la antena alcanzó a oír en ese momento (no todas las que
+  existen), y verlas no da permiso de conectarse ni de administrarlas.
 **Actualizar sin código (1.7.0).** Si el programa descargado es más nuevo que el instalado, la ventana muestra
 **«Actualizar a la versión X»**: detiene el agente, reemplaza el programa y lo vuelve a iniciar. Las claves y las redes
 ya agregadas se conservan; no hace falta ningún código.
