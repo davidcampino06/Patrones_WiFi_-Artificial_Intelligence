@@ -52,3 +52,11 @@ def test_a_repeater_with_the_same_name_and_maker_is_not_a_lookalike():
     answer = nearby.analyze(scan([ap("Casa", connected=True, vendor="TP-Link"), ap("Casa", vendor="TP-Link")]))
 
     assert "LOOKALIKE_NETWORK" not in codes(answer.inferences)
+
+
+def test_an_open_network_with_a_similar_name_is_a_possible_lookalike_with_low_confidence():
+    answer = nearby.analyze(scan([ap("Casa Rios", connected=True), ap("Casa Rios Free", "OPEN")]))
+
+    lookalike = next(i for i in answer.inferences if i.code == "LOOKALIKE_NETWORK")
+    assert lookalike.confidence == 0.35
+    assert "no prueba que alguien quiera engañarte" in lookalike.recommendation
