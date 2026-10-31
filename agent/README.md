@@ -51,6 +51,12 @@ clase que acompaña la solicitud («android-dhcp-14», «MSFT 5.0») ayuda a sab
   de un equipo a otro: ahí solo el router conoce los nombres. Los celulares con «dirección privada» y sin nombre
   configurado tampoco dicen uno. Para esos equipos queda **«¿Cuál es este equipo?»** y el lápiz para nombrarlos.
 
+**Redes Wi-Fi cercanas (1.9.0).** En Mi Wi-Fi → **Redes cercanas**, el botón **«Escanear ahora»** le pide al agente
+que mire qué redes alcanza a ver la antena de su computador; además el servidor pide un escaneo cada hora con el
+reporte. Entre reportes, el agente pregunta cada 30 segundos si alguien pidió escanear, así el botón responde en menos
+de un minuto. De cada punto de acceso (BSSID) llega el nombre de la red, la señal, el canal, la banda, el tipo de radio
+y la seguridad que anuncia.
+
 **Actualizar sin código (1.7.0).** Si el programa descargado es más nuevo que el instalado, la ventana muestra
 **«Actualizar a la versión X»**: detiene el agente, reemplaza el programa y lo vuelve a iniciar. Las claves y las redes
 ya agregadas se conservan; no hace falta ningún código.
