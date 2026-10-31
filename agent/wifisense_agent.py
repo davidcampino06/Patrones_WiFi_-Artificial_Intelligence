@@ -49,6 +49,9 @@ AGENT_VERSION = "1.8.0"
 DEFAULT_SERVER = "https://patroneswifibackend-production.up.railway.app"
 REPORT_PATH = "/api/agent/reports"
 PAIR_PATH = "/api/agent/pair"
+SCANS_PATH = "/api/agent/scans"
+NEXT_SCAN_PATH = "/api/agent/scans/next"
+SCAN_POLL_SECONDS = 30  # entre reportes, cada cuánto se pregunta si el usuario pidió escanear
 DEFAULT_INTERVAL = 300
 MIN_INTERVAL = 60
 ROUTER_PORTS = (21, 22, 23, 53, 80, 443, 445, 1900, 7547, 8080, 8443)
@@ -1101,6 +1104,37 @@ def send(report: dict, server: str, key: str, opener=urllib.request.urlopen) -> 
             raise SendError("demasiados reportes seguidos", retry_after=int(retry) if retry and retry.isdigit() else 60)
         raise SendError(f"el servidor respondió {error.code}{server_detail(error)}")
     except (urllib.error.URLError, OSError) as error:
+        raise SendError(f"no se pudo conectar con el servidor ({getattr(error, 'reason', error)})")
+
+
+# ------------------------------------------------------------------------------------- redes cercanas (1.9.0)
+
+class ScansUnavailable(Exception):
+    """El servidor no ofrece escaneos a esta clave (un backend anterior, o la clave es del sensor de una red del
+    equipo): se deja de preguntar hasta el próximo reporte."""
+
+
+def agent_call(method: str, path: str, server: str, key: str, body: Optional[dict] = None,
+               opener=urllib.request.urlopen) -> tuple[int, dict]:
+    """Llamada del agente al servidor con su clave; (código, respuesta). Los errores salen como SendError."""
+    request = urllib.request.Request(
+        validate_server(server) + path, method=method,
+        data=json.dumps(body).encode() if body is not None else None,
+        headers={"Content-Type": "application/json", "X-Agent-Key": key,
+                 "User-Agent": f"WiFiSense-Agent/{AGENT_VERSION}"})
+    try:
+        with opener(request, timeout=30) as response:
+            status = getattr(response, "status", 200)
+            raw = response.read() or b"{}"
+            return status, json.loads(raw) if status != 204 else {}
+    except urllib.error.HTTPError as error:
+        if error.code in (401, 403, 404, 405):
+            raise ScansUnavailable(str(error.code))
+        if error.code == 429:
+            retry = error.headers.get("Retry-After") if error.headers else None
+            raise SendError("demasiadas consultas seguidas", retry_after=int(retry) if retry and retry.isdigit() else 30)
+        raise SendError(f"el servidor respondió {error.code}{server_detail(error)}")
+    except (urllib.error.URLError, OSError, ValueError) as error:
         raise SendError(f"no se pudo conectar con el servidor ({getattr(error, 'reason', error)})")
 
 
