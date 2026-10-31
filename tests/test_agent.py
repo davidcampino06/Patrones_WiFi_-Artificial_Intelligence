@@ -743,3 +743,34 @@ def test_the_server_can_only_ask_for_a_scan_by_its_number(body, expected):
     assert agent.next_scan(SERVER, LAB, opener=opener) == expected
 
 
+def test_nothing_to_scan_is_a_204():
+    assert agent.next_scan(SERVER, LAB, opener=lambda request, timeout: EmptyResponse(b"")) is None
+
+
+def test_the_scan_is_delivered_without_any_mac():
+    sent = {}
+
+    def opener(request, timeout):
+        sent.update(url=request.full_url, body=json.loads(request.data))
+        return FakeResponse(b'{"status": "COMPLETED"}')
+
+    result = agent.run_scan(50, SERVER, LAB, "sal", opener=opener, scanner=FakeScanner())
+
+    assert sent["url"] == SERVER + "/api/agent/scans"
+    assert sent["body"]["scanId"] == 50 and sent["body"]["status"] == "COMPLETED"
+    assert sent["body"]["agentVersion"] == agent.AGENT_VERSION
+    assert "a4:2b:b0:12:34:56" not in json.dumps(sent["body"])
+    assert sent["body"]["accessPoints"][0]["bssid"] == agent.mac_fingerprint("a4:2b:b0:12:34:56", "sal")
+    assert result["accessPoints"][0]["bssidSuffix"] == "56"
+
+
+def test_a_delivery_that_fails_does_not_stop_the_agent(capsys):
+    def opener(request, timeout):
+        raise urllib.error.HTTPError(request.full_url, 409, "late", {}, io.BytesIO(
+            b'{"detail": "Ese escaneo ya termin\xc3\xb3: el resultado lleg\xc3\xb3 tarde."}'))
+
+    agent.run_scan(50, SERVER, LAB, "sal", opener=opener, scanner=FakeScanner())
+
+    assert "llegó tarde" in capsys.readouterr().out
+
+
