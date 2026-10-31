@@ -97,3 +97,18 @@ def test_a_huge_network_is_woken_only_around_this_computer(monkeypatch):
 
     assert len(sent) == 1022  # /22, no las 65 534 direcciones de una /16
     assert "10.20.4.1" in sent and "10.20.7.254" in sent and "10.20.8.1" not in sent
+
+
+@pytest.mark.parametrize("announced, dhcp, router, hostname, name, source", [
+    ({"name": "iPhone de Ana"}, {}, None, None, "iPhone de Ana", "ANNOUNCED"),
+    ({}, {"name": "Galaxy-A54"}, "galaxy-a54.lan", None, "Galaxy-A54", "CONFIRMED"),
+    ({}, {}, "Portatil-de-Juan.lan", "PC-RARO", "Portatil-de-Juan", "ROUTER"),
+    ({}, {}, None, "PC-SALA", "PC-SALA", "DNS"),
+    ({}, {}, None, None, None, None),
+])
+def test_every_name_says_where_it_came_from(announced, dhcp, router, hostname, name, source):
+    device = agent.describe_device("192.168.1.23", "da:a1:19:00:00:01", "sal", "192.168.1.2", "192.168.1.1",
+                                   hostname, announced, dhcp, router)
+
+    assert device.get("name") == name
+    assert device.get("nameSource") == source
