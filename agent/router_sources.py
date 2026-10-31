@@ -44,3 +44,69 @@ class RouterSource(Protocol):
 
     def block(self, device: str) -> None:
         """Saca un equipo de la red en el router."""
+
+
+def reverse_name(ip: str) -> str:
+    return ".".join(reversed(ip.split("."))) + ".in-addr.arpa"
+
+
+def encode_name(name: str) -> bytes:
+    out = b""
+    for label in name.strip(".").split("."):
+        raw = label.encode("ascii")
+        if not 0 < len(raw) < 64:
+            raise ValueError("etiqueta DNS inválida")
+        out += bytes([len(raw)]) + raw
+    return out + b"\x00"
+
+
+def ptr_query(ip: str, query_id: int) -> bytes:
+    """Pregunta PTR estándar con recursión pedida (el router responde de su propia tabla)."""
+    return struct.pack("!HHHHHH", query_id, 0x0100, 1, 0, 0, 0) + encode_name(reverse_name(ip)) + struct.pack(
+        "!HH", TYPE_PTR, CLASS_IN)
+
+
+def read_name(data: bytes, offset: int, depth: int = 0) -> tuple[str, int]:
+    """Nombre DNS con compresión (punteros), protegido contra bucles y paquetes cortados."""
+    if depth > 10:
+        raise ValueError("demasiados punteros")
+    labels = []
+    while True:
+        if offset >= len(data):
+            raise ValueError("nombre cortado")
+        length = data[offset]
+        if length == 0:
+            return ".".join(labels), offset + 1
+        if length & 0xC0 == 0xC0:
+            if offset + 1 >= len(data):
+                raise ValueError("puntero cortado")
+            pointer = ((length & 0x3F) << 8) | data[offset + 1]
+            name, _ = read_name(data, pointer, depth + 1)
+            labels.append(name)
+            return ".".join(label for label in labels if label), offset + 2
+        labels.append(data[offset + 1:offset + 1 + length].decode("utf-8", "replace"))
+        offset += 1 + length
+
+
+def parse_ptr_answer(data: bytes) -> tuple[int, Optional[str]]:
+    """(id de la pregunta, nombre) de una respuesta PTR; nombre None si el router no lo conoce o la respuesta es rara."""
+    if len(data) < 12:
+        raise ValueError("respuesta corta")
+    query_id, flags, questions, answers = struct.unpack("!HHHH", data[:8])
+    if not flags & 0x8000 or flags & 0x000F:  # no es respuesta, o trae error (por ejemplo NXDOMAIN)
+        return query_id, None
+    offset = 12
+    for _ in range(questions):
+        _name, offset = read_name(data, offset)
+        offset += 4
+    for _ in range(answers):
+        _name, offset = read_name(data, offset)
+        if offset + 10 > len(data):
+            raise ValueError("respuesta cortada")
+        record_type, _cls, _ttl, length = struct.unpack("!HHIH", data[offset:offset + 10])
+        offset += 10
+        if record_type == TYPE_PTR:
+            name, _ = read_name(data, offset)
+            return query_id, name or None
+        offset += length
+    return query_id, None
