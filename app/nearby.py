@@ -85,3 +85,32 @@ def _own_network(own: AccessPoint | None) -> list[Fact]:
     where = f" en el canal {own.channel}" if own.channel else ""
     return [Fact(code="OWN_NETWORK", title="Tu red",
                  evidence=f"«{own.ssid or 'oculta'}» usa {security}{where}{signal}.")]
+
+
+def _channel(own: AccessPoint, others: list[AccessPoint]) -> tuple[Fact | None, Inference | None]:
+    counts = Counter(ap.channel for ap in others if ap.channel and (ap.ssid or "") != (own.ssid or ""))
+    neighbours = [ChannelCount(channel=c, networks=n) for c, n in counts.items()]
+    band = own.band or channel.band_of(own.channel)
+    if band not in ("2.4", "5") or not neighbours:
+        return None, None
+    current_load = channel.load(band, own.channel, neighbours)
+    crowded = None
+    if current_load >= 3:
+        crowded = Fact(code="CROWDED_CHANNEL", severity=Level.WARNING, title="Tu canal está lleno",
+                       evidence=f"En el canal {own.channel} de tu red hay "
+                                f"{channel.crowd(band, own.channel, neighbours)}.")
+    advice = channel.recommend(ChannelRequest(band=band, channel=own.channel, channel_counts=neighbours))
+    better = None
+    if advice.should_change and advice.recommended_channel:
+        better = Inference(code="BETTER_CHANNEL", severity=Level.INFO, confidence=0.7,
+                           title=f"El canal {advice.recommended_channel} tendría menos interferencia",
+                           evidence=advice.summary, recommendation=advice.action)
+    return crowded, better
+
+
+def _count(number: int, one: str, many: str) -> str:
+    return f"{number} {one if number == 1 else many}"
+
+
+def _plain(name: str | None) -> str:
+    return re.sub(r"[^a-z0-9]", "", (name or "").lower())
