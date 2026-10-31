@@ -336,3 +336,61 @@ def test_commands_are_run_without_a_shell(monkeypatch):
 NMCLI = (" :AA\\:BB\\:CC\\:DD\\:EE\\:01:Casa\\: 2.4:6:2437 MHz:70:WPA2\n"
          "*:AA\\:BB\\:CC\\:DD\\:EE\\:02:Casa 5G:44:5220 MHz:91:WPA2 WPA3\n"
          " :12\\:34\\:56\\:78\\:9A\\:BC::1:2412 MHz:20:--\n")
+
+
+def test_linux_networks_with_nmcli():
+    access_points = wifi_scan.parse_nmcli_scan(NMCLI)
+
+    assert [ap["ssid"] for ap in access_points] == ["Casa: 2.4", "Casa 5G", None]
+    assert access_points[1]["connected"] is True and access_points[1]["authentication"] == "WPA3"
+    assert access_points[1]["band"] == "5" and access_points[0]["band"] == "2.4"
+    assert access_points[2]["authentication"] == "OPEN" and access_points[2]["securityLabel"] is None
+
+
+def test_nmcli_falls_back_to_the_last_list_when_it_cannot_rescan():
+    calls = []
+
+    def runner(args):
+        calls.append(args[-1])
+        return CommandResult(1, "Error: Scanning not allowed") if args[-1] == "yes" else CommandResult(0, NMCLI)
+
+    outcome = wifi_scan.NmcliScanner(runner).scan()
+
+    assert calls == ["yes", "no"] and outcome.fresh is False and len(outcome.access_points) == 3
+
+
+def test_nmcli_missing_or_without_wifi():
+    assert wifi_scan.NmcliScanner(lambda args: CommandResult(None, "", missing=True)).scan().failure \
+        == "UNSUPPORTED_OS"
+    assert wifi_scan.NmcliScanner(lambda args: CommandResult(10, "Error: No Wi-Fi device found.")).scan().failure \
+        == "NO_ADAPTER"
+
+
+# ------------------------------------------------------------------------------------ escaneo nuevo (WlanScan)
+
+class FakeWlan:
+    """wlanapi.dll falso con dos adaptadores."""
+
+    def __init__(self, open_result=0, scan_result=0):
+        self.open_result, self.scan_result = open_result, scan_result
+        size = 8 + 2 * wifi_scan.WLAN_INTERFACE_INFO_SIZE
+        self.memory = (ctypes.c_uint8 * size)()
+        ctypes.c_uint32.from_buffer(self.memory).value = 2
+        self.scanned, self.freed, self.closed = [], False, False
+
+    def WlanOpenHandle(self, version, reserved, negotiated, handle):
+        return self.open_result
+
+    def WlanEnumInterfaces(self, handle, reserved, out):
+        out._obj.value = ctypes.addressof(self.memory)
+        return 0
+
+    def WlanScan(self, handle, guid, ssid, ie, reserved):
+        self.scanned.append(guid.value - ctypes.addressof(self.memory))
+        return self.scan_result
+
+    def WlanFreeMemory(self, memory):
+        self.freed = True
+
+    def WlanCloseHandle(self, handle, reserved):
+        self.closed = True
