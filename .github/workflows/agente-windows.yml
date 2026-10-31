@@ -6,9 +6,11 @@ name: Agente para Windows
 on:
   push:
     branches: [main]
-    paths: ["agent/**", "tests/test_agent.py", "tests/test_windows_install.py", ".github/workflows/agente-windows.yml"]
+    paths: ["agent/**", "tests/test_agent.py", "tests/test_windows_install.py", "tests/test_wifi_scan.py",
+            "tests/test_agent_v2.py", "tests/test_router_sources.py", ".github/workflows/agente-windows.yml"]
   pull_request:
-    paths: ["agent/**", "tests/test_agent.py", "tests/test_windows_install.py", ".github/workflows/agente-windows.yml"]
+    paths: ["agent/**", "tests/test_agent.py", "tests/test_windows_install.py", "tests/test_wifi_scan.py",
+            "tests/test_agent_v2.py", "tests/test_router_sources.py", ".github/workflows/agente-windows.yml"]
   workflow_dispatch:
 
 permissions:
@@ -27,7 +29,8 @@ jobs:
       - name: Probar el agente
         run: |
           python -m pip install pytest==8.3.4
-          python -m pytest --noconftest -q tests/test_agent.py tests/test_windows_install.py
+          python -m pytest --noconftest -q tests/test_agent.py tests/test_windows_install.py tests/test_wifi_scan.py `
+            tests/test_agent_v2.py tests/test_router_sources.py
 
       - name: Construir WiFiSenseAgente.exe
         run: |
@@ -39,6 +42,18 @@ jobs:
         run: |
           $p = Start-Process -FilePath dist\WiFiSenseAgente.exe -ArgumentList "pair","X" -PassThru -Wait
           if ($p.ExitCode -ne 1) { throw "exit code $($p.ExitCode)" }
+
+      # The runner has no Wi-Fi adapter: the real scan must end with a known reason (not crash), which also proves
+      # that the program carries the scan modules.
+      - name: Escanear redes cercanas con el programa
+        shell: pwsh
+        run: |
+          Start-Process -FilePath dist\WiFiSenseAgente.exe -ArgumentList "nearby","--output","cercanas.json" -Wait
+          $scan = Get-Content cercanas.json -Raw | ConvertFrom-Json
+          Write-Output "estado: $($scan.status) motivo: $($scan.failureReason) herramienta: $($scan.scanTool)"
+          if ($scan.scanTool -ne "NETSH") { throw "no usó netsh" }
+          if ($scan.status -eq "FAILED" -and -not $scan.failureReason) { throw "falló sin motivo" }
+          if ((Get-Content cercanas.json -Raw) -match "([0-9a-f]{2}:){5}[0-9a-f]{2}") { throw "salió una MAC" }
 
       - uses: actions/upload-artifact@v7
         with:
