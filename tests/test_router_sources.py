@@ -82,3 +82,36 @@ class FakeRouterDns:
 
     def close(self):
         self.sock.close()
+
+
+def test_the_names_the_router_knows_are_asked_all_at_once_and_unknown_ones_are_left_out():
+    router = FakeRouterDns({"192.168.1.23": "Portatil-de-Ana.lan", "192.168.1.40": "Galaxy-A54"})
+    try:
+        source = routers.GatewayDnsSource("127.0.0.1", timeout=1.0, port=router.port)
+        found = source.names(["192.168.1.23", "192.168.1.40", "192.168.1.77"])
+    finally:
+        router.close()
+
+    assert found == {"192.168.1.23": "Portatil-de-Ana.lan", "192.168.1.40": "Galaxy-A54"}
+
+
+def test_answers_that_do_not_come_from_the_router_are_ignored():
+    impostor = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    impostor.bind(("127.0.0.1", 0))
+    try:
+        source = routers.GatewayDnsSource("127.0.0.2", timeout=0.5, port=impostor.getsockname()[1])
+        assert source.names(["192.168.1.23"]) == {}
+    finally:
+        impostor.close()
+
+
+def test_blocking_or_listing_clients_does_not_exist_yet_and_says_so():
+    source = routers.source_for("192.168.1.1", "Huawei", "HG8145V5")
+
+    with pytest.raises(routers.NotSupported):
+        source.block("cualquiera")
+    with pytest.raises(routers.NotSupported):
+        source.clients()
+    assert routers.SUPPORTED_OPERATIONS == {"READ_NAMES": True, "LIST_CLIENTS": False, "BLOCK_DEVICE": False,
+                                            "CHANGE_PASSWORD": False}
+    assert routers.source_for(None) is None
