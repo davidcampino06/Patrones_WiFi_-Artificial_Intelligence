@@ -229,3 +229,43 @@ def parse_nmcli_scan(text: str) -> list[dict]:
         ap["connected"] = in_use.strip() == "*"
         found.append(ap)
     return found
+
+
+# ---------------------------------------------------------------------------------- escaneo nuevo en Windows (API)
+
+WLAN_INTERFACE_INFO_SIZE = 532  # GUID (16) + WCHAR[256] (512) + WLAN_INTERFACE_STATE (4)
+
+
+def request_fresh_scan(library=None, sleep: Callable[[float], None] = time.sleep,
+                       wait: float = FRESH_SCAN_WAIT) -> bool:
+    """Le pide a Windows que vuelva a buscar redes con cada adaptador Wi-Fi (WlanScan) y espera a que termine. No
+    pide permisos de administrador ni instala nada. False si no se pudo pedir (otro sistema, sin adaptador, servicio
+    detenido o sin permiso): entonces se lee la última lista que tenga Windows."""
+    if library is None:
+        if os.name != "nt":
+            return False
+        try:
+            library = ctypes.windll.wlanapi
+        except (AttributeError, OSError):
+            return False
+    handle, version = ctypes.c_void_p(), ctypes.c_uint32()
+    if library.WlanOpenHandle(2, None, ctypes.byref(version), ctypes.byref(handle)) != 0:
+        return False
+    asked = False
+    try:
+        interfaces = ctypes.c_void_p()
+        if library.WlanEnumInterfaces(handle, None, ctypes.byref(interfaces)) != 0 or not interfaces.value:
+            return False
+        try:
+            count = ctypes.c_uint32.from_address(interfaces.value).value
+            first = interfaces.value + 8  # dwNumberOfItems y dwIndex van antes de la lista
+            for index in range(min(count, 16)):
+                guid = ctypes.c_void_p(first + index * WLAN_INTERFACE_INFO_SIZE)
+                asked = library.WlanScan(handle, guid, None, None, None) == 0 or asked
+        finally:
+            library.WlanFreeMemory(interfaces)
+    finally:
+        library.WlanCloseHandle(handle, None)
+    if asked:
+        sleep(wait)
+    return asked
