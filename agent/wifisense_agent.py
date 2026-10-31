@@ -578,8 +578,12 @@ def own_mac() -> Optional[str]:
 
 try:  # el agente como paquete (pruebas) o como script suelto (PyInstaller, python wifisense_agent.py)
     from agent import device_discovery as discovery
+    from agent import wifi_scan
+    from agent import router_sources
 except ImportError:  # pragma: no cover
     import device_discovery as discovery
+    import wifi_scan
+    import router_sources
 
 IDENTITY_MAX_AGE = 1800  # lo que anuncian los equipos y sus puertos cambia poco: se revisa cada 30 minutos
 _identity_cache: dict = {"at": 0.0, "macs": frozenset(), "by_mac": {}}
@@ -631,6 +635,20 @@ def devices(own_ip: Optional[str], salt: str, wait: float = 2.0, gateway: Option
         found.append(describe_device(ip, mac, salt, own_ip, gateway, own_name if ip == own_ip else names.get(ip),
                                      announced.get(mac, {}), dhcp.get(mac, {})))
     return found[:MAX_DEVICES]
+
+
+def router_names(gateway: Optional[str], ips: list[str], source_factory=None) -> dict[str, str]:
+    """Nombres que el propio router conoce (su DNS, sin clave). Si el router no responde, no hay nombres de ahí."""
+    if not gateway or not ips:
+        return {}
+    source = (source_factory or router_sources.source_for)(gateway)
+    if source is None:
+        return {}
+    try:
+        return {ip: name for ip, name in source.names(ips).items() if clean_hostname(name, ip)}
+    except Exception as error:  # el router puede no tener DNS: es un extra
+        print(f"  aviso: el router no respondió nombres: {error}", file=sys.stderr)
+        return {}
 
 
 def describe_device(ip: str, mac: str, salt: str, own_ip: str, gateway: Optional[str], hostname: Optional[str],
