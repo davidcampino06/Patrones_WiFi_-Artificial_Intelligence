@@ -313,3 +313,37 @@ class NetshScanner:
         for ap in access_points:
             ap["connected"] = mine is not None and ap["mac"] == mine
         return ScanOutcome(self.tool, access_points, interface=interface, fresh=fresh)
+
+
+class NmcliScanner:
+    """Linux con NetworkManager."""
+    tool = "NMCLI"
+
+    def __init__(self, runner: Callable[[list[str]], CommandResult] = run):
+        self.runner = runner
+
+    def scan(self) -> ScanOutcome:
+        base = ["nmcli", "-t", "-f", NMCLI_FIELDS, "dev", "wifi", "list"]
+        listed, fresh = self.runner(base + ["--rescan", "yes"]), True
+        if not listed.timed_out and not listed.missing and listed.code:
+            # NetworkManager no deja volver a escanear tan seguido: se lee la última lista
+            listed, fresh = self.runner(base + ["--rescan", "no"]), False
+        if listed.timed_out:
+            return ScanOutcome(self.tool, failure="TIMEOUT", fresh=fresh)
+        if listed.missing:
+            return ScanOutcome(self.tool, failure="UNSUPPORTED_OS")
+        if listed.code:
+            lower = listed.text.lower()
+            reason = "NO_ADAPTER" if "no wi-fi device" in lower else "ADAPTER_OFF" if "disabled" in lower \
+                else "SERVICE_OFF" if "not running" in lower else "COMMAND_FAILED"
+            return ScanOutcome(self.tool, failure=reason, fresh=fresh)
+        return ScanOutcome(self.tool, parse_nmcli_scan(listed.text), fresh=fresh)
+
+
+def scanner_for(platform: str = sys.platform):
+    """La herramienta del sistema, o None si este sistema no tiene una que el agente sepa usar (macOS, por ejemplo)."""
+    if platform.startswith("win"):
+        return NetshScanner()
+    if platform.startswith("linux"):
+        return NmcliScanner()
+    return None
