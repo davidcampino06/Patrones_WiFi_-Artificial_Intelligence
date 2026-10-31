@@ -99,6 +99,12 @@ No usa la clave del router. Cada nombre va con su origen (`nameSource`): `ANNOUN
 dijo el router), `CONFIRMED` (el equipo y el router dicen lo mismo) o `DNS` (lo dijo la red). El fabricante por la MAC
 es una estimación y nunca se presenta como el nombre.
 
+**Redes grandes (2.0.0).** Hasta la 1.9 el agente suponía que la red era /24 y no veía a un compañero con una IP fuera
+de ese pedazo (por ejemplo 10.20.5.40 y 10.20.7.12 en una red /21 de la universidad). Ahora lee la máscara real
+(`ipconfig` en cualquier idioma o `ip addr`) y, para no inundar una red enorme, despierta como mucho las 1022
+direcciones de alrededor (/22). Si la red tiene **aislamiento de clientes** (común en universidades), ningún equipo
+ve a los demás y solo el router los conoce: eso no lo resuelve ningún agente.
+
 **Actualizar sin código (1.7.0).** Si el programa descargado es más nuevo que el instalado, la ventana muestra
 **«Actualizar a la versión X»**: detiene el agente, reemplaza el programa y lo vuelve a iniciar. Las claves y las redes
 ya agregadas se conservan; no hace falta ningún código.
