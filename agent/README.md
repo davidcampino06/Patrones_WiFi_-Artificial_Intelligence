@@ -158,11 +158,13 @@ para probar cambios. Solo necesita **Python 3.9 o superior**; no instala nada m�
 ```cmd
 python wifisense_agent.py pair K7QM-4RZD
 python wifisense_agent.py scan
+python wifisense_agent.py nearby
 python wifisense_agent.py run
 ```
 
 `pair` cambia el código por la clave del agente y la guarda solo para tu usuario (`%APPDATA%\WiFiSense\agent.json` en Windows,
 `~/.config/WiFiSense/agent.json` en Linux). `scan` mide y muestra exactamente lo que se enviaría, sin enviar nada.
+`nearby` escanea las redes Wi-Fi cercanas y las muestra, sin enviar nada.
 `run` envía un reporte cada 5 minutos hasta que pulses Ctrl + C (`run --once` envía uno solo).
 
 Si Windows no deja leer los datos del Wi-Fi: Configuración → Privacidad y seguridad → Ubicación → activa
