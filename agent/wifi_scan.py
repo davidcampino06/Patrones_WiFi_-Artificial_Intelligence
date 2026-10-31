@@ -269,3 +269,47 @@ def request_fresh_scan(library=None, sleep: Callable[[float], None] = time.sleep
     if asked:
         sleep(wait)
     return asked
+
+
+# ---------------------------------------------------------------------------------------------- herramientas
+
+
+class ScanOutcome:
+    """Lo que obtuvo una herramienta: los puntos de acceso (con su MAC todavía) o el motivo de la falla."""
+
+    def __init__(self, tool: str, access_points: Optional[list] = None, failure: Optional[str] = None,
+                 interface: Optional[str] = None, fresh: Optional[bool] = None):
+        self.tool, self.access_points, self.failure = tool, access_points or [], failure
+        self.interface, self.fresh = interface, fresh
+
+
+class NetshScanner:
+    """Windows: escaneo nuevo con WlanScan y lectura con netsh."""
+    tool = "NETSH"
+
+    def __init__(self, runner: Callable[[list[str]], CommandResult] = run,
+                 fresh: Callable[[], bool] = request_fresh_scan):
+        self.runner, self.fresh = runner, fresh
+
+    def scan(self) -> ScanOutcome:
+        fresh = self.fresh()
+        listed = self.runner(["netsh", "wlan", "show", "networks", "mode=bssid"])
+        if listed.timed_out:
+            return ScanOutcome(self.tool, failure="TIMEOUT", fresh=fresh)
+        if listed.missing:
+            return ScanOutcome(self.tool, failure="COMMAND_FAILED", fresh=fresh)
+        reason = failure_of(listed.text)
+        if reason:
+            return ScanOutcome(self.tool, failure=reason, fresh=fresh)
+        interface, access_points = parse_netsh_scan(listed.text)
+        if interface is None and not access_points:
+            # ni el nombre del adaptador: netsh respondió algo que no es la lista (otro error, otro idioma)
+            return ScanOutcome(self.tool, failure="COMMAND_FAILED" if listed.code else "UNREADABLE_OUTPUT",
+                               fresh=fresh)
+        interfaces = self.runner(["netsh", "wlan", "show", "interfaces"])
+        if not access_points and radio_off(interfaces.text):
+            return ScanOutcome(self.tool, failure="ADAPTER_OFF", interface=interface, fresh=fresh)
+        mine = connected_bssid(interfaces.text)
+        for ap in access_points:
+            ap["connected"] = mine is not None and ap["mac"] == mine
+        return ScanOutcome(self.tool, access_points, interface=interface, fresh=fresh)
