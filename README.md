@@ -41,7 +41,8 @@ app/llm_advisor.py    recomendaciones opcionales con Claude
 docs/                 patrones.md, evaluacion_modelos.md, entrenamiento_real.md, pruebas_de_carga.md, modelo_calidad.md,
                       auditoria_seguridad.md y canal_wifi.md
 load-tests/           carga_ia.py: prueba de carga del servicio (solo Python estándar)
-tests/                preprocesamiento, modelo, diagnóstico, escenarios, evaluación, seguridad, canal, agente y API
+tests/                preprocesamiento, modelo, diagnóstico, escenarios, evaluación, seguridad, canal, agente, escaneo de
+                      redes cercanas (test_wifi_scan.py, también en Windows real) y API
 tests/contracts/      ejemplos JSON del contrato con el backend (los mismos que usa WiFiSense-backend)
 agent/                agente WiFiSense que corre en la casa del usuario e instalador para Windows (ver agent/README.md)
 .github/workflows/    servicio-ia.yml (pruebas, pip-audit e imagen en cada Pull Request) y agente-windows.yml (instalador)
