@@ -104,3 +104,63 @@ def radio_off(interfaces_text: str) -> bool:
     'netsh wlan show interfaces'."""
     lower = (interfaces_text or "").lower()
     return any(hint in lower for hint in RADIO_OFF)
+
+
+# ------------------------------------------------------------------------------------------------- lectura (netsh)
+
+# Claves exactas de 'netsh wlan show networks mode=bssid' ya normalizadas (sin tildes, espacios ni números), en
+# inglés y en español, incluso cuando la consola dañó la tilde ('Se¤al' -> 'seal'). Son exactas a propósito:
+# Windows 11 agrega 'Channel Utilization', que no es el canal.
+SCAN_KEYS = {
+    "interface": {"interfacename", "nombredelainterfaz", "nombredeinterfaz"},
+    "ssid": {"ssid"},
+    "bssid": {"bssid"},
+    "authentication": {"authentication", "autenticacion", "autenticacin"},
+    "cipher": {"encryption", "cipher", "cifrado"},
+    "signal": {"signal", "senal", "seal"},
+    "radio": {"radiotype", "tipoderadio"},
+    "band": {"band", "banda"},
+    "channel": {"channel", "canal"},
+}
+
+
+def scan_key(key: str) -> Optional[str]:
+    normalized = normalize_key(key)
+    for field, names in SCAN_KEYS.items():
+        if normalized in names:
+            return field
+    return None
+
+
+def clean_ssid(value: Optional[str]) -> Optional[str]:
+    """El nombre tal como lo anuncia la red (tildes, emoji y comillas incluidos), sin caracteres de control; vacío es
+    una red oculta."""
+    if value is None:
+        return None
+    visible = "".join(c for c in value if c.isprintable())
+    return visible[:64] if visible.strip() else None
+
+
+def parse_netsh_scan(text: str) -> tuple[Optional[str], list[dict]]:
+    """(adaptador, puntos de acceso) de 'netsh wlan show networks mode=bssid'. Cada punto de acceso trae la MAC
+    todavía: ``describe`` la cambia por su huella antes de que salga del computador."""
+    interface, found = None, []
+    network: dict = {}
+    current: Optional[dict] = None
+    for key, value in key_values(text):
+        field = scan_key(key)
+        if field == "interface" and interface is None:
+            interface = value or None
+        elif field == "ssid":
+            network = {"ssid": clean_ssid(value), "authentication": None, "cipher": None}
+            current = None
+        elif field in ("authentication", "cipher") and current is None:
+            network[field] = value or None
+        elif field == "bssid":
+            mac = value.strip().lower().replace("-", ":")
+            current = {"mac": mac, **network} if MAC.match(mac) else None
+            if current is not None:
+                found.append(current)
+        elif current is not None and field in ("signal", "radio", "band", "channel"):
+            current[field] = value or None
+    return interface, [access_point(ap) for ap in found]
