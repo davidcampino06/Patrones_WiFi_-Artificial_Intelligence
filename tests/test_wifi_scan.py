@@ -247,3 +247,37 @@ def test_the_list_windows_already_had_is_marked_as_not_fresh():
 
     assert result["fresh"] is False
     assert "lista que ya tenía el sistema" in wifi_scan.summary(result)
+
+
+@pytest.mark.parametrize("answer, reason", [
+    ("There is no wireless interface on the system.", "NO_ADAPTER"),
+    ("No hay ninguna interfaz inalámbrica en el sistema.", "NO_ADAPTER"),
+    ("The Wireless AutoConfig Service (wlansvc) is not running.", "SERVICE_OFF"),
+    ("El Servicio de configuración automática de WLAN (wlansvc) no se está ejecutando.", "SERVICE_OFF"),
+    (LOCATION, "LOCATION_PERMISSION"),
+    ("Los comandos de shell de red necesitan permiso de ubicación para acceder a la información de WLAN.",
+     "LOCATION_PERMISSION"),
+])
+def test_each_windows_error_becomes_its_reason(answer, reason):
+    result = scan_with({"mode=bssid": CommandResult(1, answer)})
+
+    assert result["status"] == "FAILED" and result["failureReason"] == reason
+    assert result["accessPoints"] == []
+
+
+def test_a_wifi_turned_off_is_a_failure_not_an_empty_neighborhood():
+    result = scan_with({"mode=bssid": "Nombre de la interfaz : Wi-Fi\nHay 0 redes visibles actualmente.\n",
+                        "interfaces": INTERFACES_RADIO_OFF})
+
+    assert result["status"] == "FAILED" and result["failureReason"] == "ADAPTER_OFF"
+    assert result["interfaceName"] == "Wi-Fi"
+
+
+def test_a_command_that_takes_too_long_or_does_not_exist():
+    assert scan_with({"mode=bssid": CommandResult(None, "", timed_out=True)})["failureReason"] == "TIMEOUT"
+    assert scan_with({"mode=bssid": CommandResult(None, "", missing=True)})["failureReason"] == "COMMAND_FAILED"
+
+
+def test_an_answer_that_is_not_the_list_is_unreadable():
+    assert scan_with({"mode=bssid": "Something unexpected"})["failureReason"] == "UNREADABLE_OUTPUT"
+    assert scan_with({"mode=bssid": CommandResult(5, "Error 0x5")})["failureReason"] == "COMMAND_FAILED"
