@@ -305,6 +305,45 @@ def same_subnet(ips: dict[str, str], own_ip: str, prefix: int = 24) -> dict[str,
             if ipaddress.ip_address(ip) in network and ipaddress.ip_address(ip) != network.broadcast_address}
 
 
+DEFAULT_PREFIX = 24
+WIDEST_WAKE_PREFIX = 22
+
+
+def parse_ipconfig_prefix(text: str, own_ip: str) -> Optional[int]:
+    """Máscara de la interfaz con ``own_ip`` en 'ipconfig' (Windows, en cualquier idioma): la primera línea después
+    de la IP cuyo valor es una máscara válida (255.x.x.x)."""
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if not re.search(rf"(?<![\d.]){re.escape(own_ip)}(?![\d.])", line):
+            continue
+        for following in lines[index + 1:index + 6]:
+            value = following.split(":", 1)[-1].strip()
+            if re.fullmatch(r"255\.\d{1,3}\.\d{1,3}\.\d{1,3}", value):
+                try:
+                    return ipaddress.IPv4Network(f"0.0.0.0/{value}").prefixlen
+                except ValueError:
+                    return None
+        return None
+    return None
+
+
+def parse_ip_addr_prefix(text: str, own_ip: str) -> Optional[int]:
+    """Prefijo de ``own_ip`` en 'ip -o -4 addr show' (Linux): 'inet 10.20.5.40/21 brd ...'."""
+    match = re.search(rf"inet {re.escape(own_ip)}/(\d{{1,2}})\b", text)
+    return int(match.group(1)) if match and 8 <= int(match.group(1)) <= 32 else None
+
+
+def network_prefix(own_ip: Optional[str]) -> int:
+    """El prefijo real de la red de este computador; /24 si el sistema no lo dice."""
+    if not own_ip:
+        return DEFAULT_PREFIX
+    if IS_WINDOWS:
+        found = parse_ipconfig_prefix(run_command(["ipconfig"]), own_ip)
+    else:
+        found = parse_ip_addr_prefix(run_command(["ip", "-o", "-4", "addr", "show"]), own_ip)
+    return found if found and 8 <= found <= 30 else DEFAULT_PREFIX
+
+
 def wake_neighbors(own_ip: str) -> None:
     """Un datagrama vacío al puerto 9 (discard) de cada dirección de la red obliga al sistema a preguntar por ARP
     quién la tiene, y así la tabla ARP se llena con los equipos encendidos, aunque no respondan al ping."""
