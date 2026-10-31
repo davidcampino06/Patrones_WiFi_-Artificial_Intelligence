@@ -1423,6 +1423,8 @@ def command_run(args) -> int:
                 if counters:
                     save_traffic_state(counters, network=tag)
                 print(f"  Enviado a «{network.get('network') or 'tu red'}». {answer.get('summary', '')}".rstrip())
+                if scan_id_of(answer) is not None:
+                    run_scan(scan_id_of(answer), config["server"], network["key"], salt)
             except SendError as error:
                 print(f"  No se envió: {error}")
                 if error.fatal:

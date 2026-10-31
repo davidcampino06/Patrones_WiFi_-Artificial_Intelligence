@@ -697,3 +697,49 @@ def test_the_name_a_phone_gave_when_asking_for_an_address_is_used(monkeypatch):
     assert found[None]["name"] == "Galaxy-A54-de-Ana"  # MAC privada: sin DHCP no tendría nombre
     assert found[None]["kind"] == "PHONE"
     assert found["Apple"]["name"] == "iPhone-de-Luis"  # lo que dice el equipo gana al DNS de la red
+# --------------------------------------------------------------------------------- redes cercanas (1.9.0)
+
+SERVER = "https://wifisense.example.com"
+
+
+class EmptyResponse(FakeResponse):
+    status = 204
+
+
+class FakeScanner:
+    tool = "NETSH"
+
+    def scan(self):
+        return agent.wifi_scan.ScanOutcome("NETSH", [{
+            "mac": "a4:2b:b0:12:34:56", "ssid": "Vecino", "signalPercent": 70, "signalDbm": None, "channel": 6,
+            "band": "2.4", "radioType": "802.11n", "authentication": "WPA2", "securityLabel": "WPA2-Personal",
+            "cipher": "CCMP", "connected": False}], interface="Wi-Fi", fresh=True)
+
+
+def test_a_scan_asked_in_the_answer_to_a_report_is_run_and_delivered(tmp_path, monkeypatch):
+    monkeypatch.setenv("WIFISENSE_AGENT_KEY", LAB)
+    monkeypatch.setattr(agent, "traffic_state_path", lambda: tmp_path / "traffic.json")
+    monkeypatch.setattr(agent, "ensure_salt", lambda config: "sal")
+    monkeypatch.setattr(agent, "collect", lambda salt: {"deviceCount": 0, "openPorts": []})
+    monkeypatch.setattr(agent, "traffic_counters", lambda: {})
+    monkeypatch.setattr(agent, "send", lambda report, server, key: {"summary": "ok", "scanId": 12})
+    ran = []
+    monkeypatch.setattr(agent, "run_scan", lambda scan_id, server, key, salt: ran.append((scan_id, key, salt)))
+
+    assert agent.command_run(agent.argparse.Namespace(once=True, interval=300)) == 0
+    assert ran == [(12, LAB, "sal")]
+
+
+@pytest.mark.parametrize("body, expected", [
+    (b'{"scanId": 50}', 50), (b'{"scanId": "rm -rf /"}', None), (b'{"scanId": true}', None),
+    (b'{"scanId": -4}', None), (b'{"command": "netsh wlan export profile key=clear"}', None),
+])
+def test_the_server_can_only_ask_for_a_scan_by_its_number(body, expected):
+    def opener(request, timeout):
+        assert request.get_method() == "GET" and request.full_url == SERVER + "/api/agent/scans/next"
+        assert request.get_header("X-agent-key") == LAB
+        return FakeResponse(body)
+
+    assert agent.next_scan(SERVER, LAB, opener=opener) == expected
+
+
