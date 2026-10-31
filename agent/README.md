@@ -69,6 +69,14 @@ y la seguridad que anuncia.
   BSSID es el de fábrica. Nunca se leen ni se exportan las contraseñas de los perfiles Wi-Fi.
 - **Ver una red no la hace tuya:** son solo las redes que la antena alcanzó a oír en ese momento (no todas las que
   existen), y verlas no da permiso de conectarse ni de administrarlas.
+- **Cuando no se puede**, el escaneo falla con su motivo y la página lo explica: no hay adaptador Wi-Fi
+  (`NO_ADAPTER`), el Wi-Fi está apagado (`ADAPTER_OFF`), el servicio de Wi-Fi de Windows está detenido
+  (`SERVICE_OFF`), falta el permiso de ubicación de Windows 11 (`LOCATION_PERMISSION`), el comando falló o tardó
+  (`COMMAND_FAILED`, `TIMEOUT`), la respuesta no se entendió (`UNREADABLE_OUTPUT`) o el sistema no tiene una
+  herramienta conocida (`UNSUPPORTED_OS`, por ejemplo macOS). Si el agente no entrega en 3 minutos, el servidor lo
+  marca `AGENT_NO_RESPONSE`.
+- **El servidor solo puede pedir un escaneo por su número**: el agente nunca ejecuta órdenes que lleguen del servidor.
+
 **Actualizar sin código (1.7.0).** Si el programa descargado es más nuevo que el instalado, la ventana muestra
 **«Actualizar a la versión X»**: detiene el agente, reemplaza el programa y lo vuelve a iniciar. Las claves y las redes
 ya agregadas se conservan; no hace falta ningún código.
