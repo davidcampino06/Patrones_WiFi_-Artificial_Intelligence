@@ -105,6 +105,11 @@ de ese pedazo (por ejemplo 10.20.5.40 y 10.20.7.12 en una red /21 de la universi
 direcciones de alrededor (/22). Si la red tiene **aislamiento de clientes** (común en universidades), ningún equipo
 ve a los demás y solo el router los conoce: eso no lo resuelve ningún agente.
 
+**El router no se administra desde WiFiSense.** La lista oficial de clientes, bloquear un equipo o cambiar la
+contraseña necesitan la clave del router y una integración por modelo; hoy no existe ninguna, así que no se pide ni se
+guarda esa clave. `router_sources.py` deja la abstracción lista (`RouterSource`, `source_for`) para agregar una
+integración oficial más adelante sin tocar el resto del agente.
+
 **Actualizar sin código (1.7.0).** Si el programa descargado es más nuevo que el instalado, la ventana muestra
 **«Actualizar a la versión X»**: detiene el agente, reemplaza el programa y lo vuelve a iniciar. Las claves y las redes
 ya agregadas se conservan; no hace falta ningún código.
