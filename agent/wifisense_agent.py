@@ -1138,6 +1138,29 @@ def agent_call(method: str, path: str, server: str, key: str, body: Optional[dic
         raise SendError(f"no se pudo conectar con el servidor ({getattr(error, 'reason', error)})")
 
 
+def next_scan(server: str, key: str, opener=urllib.request.urlopen) -> Optional[int]:
+    """El número del escaneo que el usuario pidió en Mi Wi-Fi, o None si no hay ninguno. El servidor solo puede pedir
+    un escaneo: el agente nunca ejecuta órdenes que lleguen del servidor."""
+    status, answer = agent_call("GET", NEXT_SCAN_PATH, server, key, opener=opener)
+    return scan_id_of(answer) if status == 200 else None
+
+
+def scan_id_of(answer) -> Optional[int]:
+    scan_id = answer.get("scanId") if isinstance(answer, dict) else None
+    return scan_id if isinstance(scan_id, int) and not isinstance(scan_id, bool) and scan_id > 0 else None
+
+
+def run_scan(scan_id: int, server: str, key: str, salt: str, opener=urllib.request.urlopen, scanner=None) -> dict:
+    """Escanea las redes cercanas y entrega el resultado al escaneo ``scan_id``."""
+    result = wifi_scan.scan(scan_id, AGENT_VERSION, lambda mac: mac_fingerprint(mac, salt), vendor_of, scanner)
+    print(f"  {wifi_scan.summary(result)}")
+    try:
+        agent_call("POST", SCANS_PATH, server, key, result, opener=opener)
+    except (SendError, ScansUnavailable) as error:
+        print(f"  No se entregó el escaneo: {error}")
+    return result
+
+
 CODE_PATTERN = re.compile(r"^[A-HJKMNP-Z2-9]{8}$")
 
 
