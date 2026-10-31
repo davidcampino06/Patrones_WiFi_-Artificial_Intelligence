@@ -176,6 +176,7 @@ Si Windows no deja leer los datos del Wi-Fi: Configuración → Privacidad y seg
 |---|---|
 | Nombre de la red, seguridad, cifrado, señal, canal, banda | `netsh wlan show interfaces` (Windows) o `nmcli` (Linux) |
 | Redes vecinas por canal (para recomendar el mejor) | `netsh wlan show networks mode=bssid` o `nmcli` |
+| Redes cercanas con su señal, canal, banda y seguridad (desde 1.9.0, cuando se pide o cada hora) | escaneo nuevo con `WlanScan` y lectura con `netsh wlan show networks mode=bssid`; en Linux `nmcli --rescan yes` |
 | Latencia, jitter y pérdida hacia internet | 10 conexiones TCP a 1.1.1.1:443 |
 | Latencia hacia el router | 5 conexiones TCP al router |
 | Equipos conectados | un datagrama vacío a cada dirección de la red para llenar la tabla ARP y luego `arp -a` |
@@ -194,14 +195,15 @@ misma certeza:
 
 | Qué | Certeza | Por qué |
 |---|---|---|
-| Redes Wi-Fi vecinas y su canal | **Medido** | Las detecta la tarjeta Wi-Fi del computador (`netsh` / `nmcli`) |
+| Redes Wi-Fi vecinas y su canal | **Medido** | Las detecta la tarjeta Wi-Fi del computador (`netsh` / `nmcli`); solo las que alcanza a oír en ese momento |
 | Latencia, jitter, pérdida, señal, tráfico de este computador | **Medido** | Conexiones reales y contadores del sistema |
 | Equipos que respondieron en la red local | **Medido, pero incompleto** | Están en la tabla ARP después del barrido. Un equipo dormido o que no responde puede faltar, y uno que acaba de salir puede seguir unos minutos |
 | «Este computador» y «Router» | **Seguro** | Son la IP del propio agente y la puerta de enlace del sistema |
 | Fabricante | **Deducido** de la MAC (OUI) | Dice quién fabricó la tarjeta, no qué equipo es ni de quién es; con MAC privada no se puede saber |
 | Nombre y modelo | **Lo que el equipo anuncia** (mDNS, UPnP, NetBIOS) | Lo eligió su dueño o el fabricante; un equipo puede anunciar cualquier nombre |
 | Tipo (celular, TV, impresora…) | **Suposición** | Sale del nombre, los servicios y los puertos que ofrece; la página lo muestra como «Parece…» |
-| Equipos confirmados por el router | **No disponible** | Solo el router sabe con certeza quién está conectado, y los routers de la casa y de la sede no ofrecen una API ni SNMP |
+| Nombre que da el router (2.0.0) | **Lo que el router guardó** | El DNS del router repite el nombre que el equipo dio al pedir dirección; cuando coincide con el que anuncia el equipo, la página lo muestra como confirmado |
+| Lista oficial de clientes del router | **No disponible** | Solo el router la tiene, y leerla necesita su clave y una integración por modelo que WiFiSense no tiene |
 
 Por eso existe el asistente **«¿Cuál es este equipo?»**: confirmar un equipo apagando su Wi-Fi es más fiable que
 cualquier suposición. WiFiSense nunca expulsa, bloquea ni interfiere equipos: para sacar a alguien de la red hay que
@@ -210,7 +212,8 @@ cambiar la clave del Wi-Fi o bloquearlo en el router, y la página explica cómo
 ## Privacidad y seguridad
 
 - Las direcciones MAC **no salen del computador**: se envía una huella SHA-256 con una sal aleatoria creada en esta
-  instalación. Sirve para saber si un equipo es nuevo, pero no para saber cuál es.
+  instalación. Sirve para saber si un equipo es nuevo, pero no para saber cuál es. Lo mismo con el BSSID de las redes
+  cercanas (solo viaja su último byte).
 - De cada equipo se envía el fabricante, el nombre y el modelo que **él mismo anuncia** en la red (como en la lista
   de Bluetooth) y el tipo que el agente deduce, para que lo reconozcas. No se envían IP ni el nombre del usuario del
   computador.
