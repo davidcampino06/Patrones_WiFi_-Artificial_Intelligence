@@ -74,3 +74,33 @@ def run(args: list[str], timeout: float = COMMAND_TIMEOUT) -> CommandResult:
     except (OSError, subprocess.SubprocessError) as error:
         return CommandResult(None, str(error))
     return CommandResult(done.returncode, decode(done.stdout) + decode(done.stderr))
+
+
+# ------------------------------------------------------------------------------------------- errores de Windows
+
+# Lo que netsh responde (en español o en inglés) cuando no puede escanear, y el motivo que se le envía al servidor.
+# Se revisan en este orden: el permiso de ubicación también menciona la interfaz, por ejemplo.
+FAILURE_HINTS = (
+    ("LOCATION_PERMISSION", ("location permission", "location services", "permiso de ubicaci", "servicios de ubicaci")),
+    ("SERVICE_OFF", ("wlansvc", "autoconfig service", "configuracion automatica de wlan",
+                     "configuración automática de wlan")),
+    ("NO_ADAPTER", ("no wireless interface", "ninguna interfaz inal", "no hay interfaces inal")),
+)
+RADIO_OFF = ("software off", "hardware off", "software apagado", "hardware apagado", "software desactivado",
+             "hardware desactivado")
+
+
+def failure_of(text: str) -> Optional[str]:
+    """El motivo por el que netsh no pudo escanear, según su mensaje; None si el mensaje no es de error."""
+    lower = (text or "").lower()
+    for reason, hints in FAILURE_HINTS:
+        if any(hint in lower for hint in hints):
+            return reason
+    return None
+
+
+def radio_off(interfaces_text: str) -> bool:
+    """El Wi-Fi está apagado (con el botón del teclado, el modo avión o en Configuración) según
+    'netsh wlan show interfaces'."""
+    lower = (interfaces_text or "").lower()
+    return any(hint in lower for hint in RADIO_OFF)
