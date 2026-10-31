@@ -180,6 +180,7 @@ hasta 3 recomendaciones en español (le envía también la causa probable del di
 | POST | `/api/v1/quality/score` | Calidad de 0 a 100 de una prueba o medición |
 | POST | `/api/v1/security/assess` | Auditoría de seguridad de 0 a 100 con hallazgos y acciones |
 | POST | `/api/v1/channel/recommend` | Canal con menos interferencia y si vale la pena cambiarlo |
+| POST | `/api/v1/nearby/analyze` | Lectura de un escaneo de redes cercanas: canal lleno, seguridad débil, redes parecidas a la tuya |
 
 **Contrato con el backend** (`tests/test_contract.py`): los JSON de `tests/contracts` son lo que el backend envía y lo
 que lee de cada respuesta; el backend tiene los mismos archivos en `src/test/resources/contracts` y la página tres de
