@@ -67,3 +67,33 @@ def test_without_an_answer_from_the_system_the_network_is_assumed_to_be_a_24(mon
 
     assert agent.network_prefix("192.168.1.2") == 24
     assert agent.network_prefix(None) == 24
+
+
+def test_a_classmate_in_another_part_of_a_big_university_network_is_now_seen():
+    table = {"10.20.7.12": "aa:bb:cc:00:00:01", "10.20.5.99": "aa:bb:cc:00:00:02", "10.30.0.5": "aa:bb:cc:00:00:03"}
+
+    assert set(agent.same_subnet(table, "10.20.5.40", 24)) == {"10.20.5.99"}  # lo que hacía la 1.9
+    assert set(agent.same_subnet(table, "10.20.5.40", 21)) == {"10.20.7.12", "10.20.5.99"}
+
+
+def test_a_huge_network_is_woken_only_around_this_computer(monkeypatch):
+    sent = []
+
+    class Socket:
+        def __init__(self, *args):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def sendto(self, data, address):
+            sent.append(address[0])
+
+    monkeypatch.setattr(agent.socket, "socket", Socket)
+    agent.wake_neighbors("10.20.5.40", 16)
+
+    assert len(sent) == 1022  # /22, no las 65 534 direcciones de una /16
+    assert "10.20.4.1" in sent and "10.20.7.254" in sent and "10.20.8.1" not in sent
