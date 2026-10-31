@@ -41,3 +41,44 @@ def test_a_router_that_does_not_know_the_address_gives_no_name():
 
     assert routers.parse_ptr_answer(answer(query, rcode=3)) == (5, None)  # NXDOMAIN
     assert routers.parse_ptr_answer(answer(query)) == (5, None)
+
+
+@pytest.mark.parametrize("raw", [b"\x00\x01", b"\x00\x05\x81\x80\x00\x01\x00\x01\x00\x00\x00\x00\xc0\x0c"])
+def test_a_broken_answer_is_rejected_instead_of_read_beyond_its_end(raw):
+    with pytest.raises(ValueError):
+        routers.parse_ptr_answer(raw)
+
+
+def test_a_pointer_loop_cannot_hang_the_agent():
+    looping = b"\x00" * 12 + b"\xc0\x0c"
+    with pytest.raises(ValueError):
+        routers.read_name(looping, 12)
+
+
+class FakeRouterDns:
+    """Un 'router' de verdad en 127.0.0.1 que responde PTR de su tabla de DHCP."""
+
+    def __init__(self, table):
+        self.table = table
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.bind(("127.0.0.1", 0))
+        self.port = self.sock.getsockname()[1]
+        self.thread = threading.Thread(target=self.serve, daemon=True)
+        self.thread.start()
+
+    def serve(self):
+        self.sock.settimeout(3)
+        try:
+            while True:
+                query, sender = self.sock.recvfrom(512)
+                labels, offset = [], 12
+                while query[offset]:
+                    labels.append(query[offset + 1:offset + 1 + query[offset]].decode())
+                    offset += 1 + query[offset]
+                ip = ".".join(reversed(labels[:4]))
+                self.sock.sendto(answer(query, self.table.get(ip), rcode=0 if ip in self.table else 3), sender)
+        except OSError:
+            return
+
+    def close(self):
+        self.sock.close()
