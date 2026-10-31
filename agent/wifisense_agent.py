@@ -305,6 +305,10 @@ def same_subnet(ips: dict[str, str], own_ip: str, prefix: int = 24) -> dict[str,
             if ipaddress.ip_address(ip) in network and ipaddress.ip_address(ip) != network.broadcast_address}
 
 
+# Hasta la 1.9 el agente suponía que la red era /24 (254 direcciones) y no veía a los equipos con una IP fuera de ese
+# pedazo: en las redes grandes (universidades, empresas) dos portátiles juntos pueden tener 10.20.5.40 y 10.20.7.12.
+# Desde la 2.0.0 se lee la máscara real; para no inundar una red enorme, se despiertan como mucho las 1022
+# direcciones de alrededor (/22). Lo que ya está en la tabla ARP se acepta con la máscara real.
 DEFAULT_PREFIX = 24
 WIDEST_WAKE_PREFIX = 22
 
@@ -344,10 +348,11 @@ def network_prefix(own_ip: Optional[str]) -> int:
     return found if found and 8 <= found <= 30 else DEFAULT_PREFIX
 
 
-def wake_neighbors(own_ip: str) -> None:
+def wake_neighbors(own_ip: str, prefix: int = DEFAULT_PREFIX) -> None:
     """Un datagrama vacío al puerto 9 (discard) de cada dirección de la red obliga al sistema a preguntar por ARP
-    quién la tiene, y así la tabla ARP se llena con los equipos encendidos, aunque no respondan al ping."""
-    network = ipaddress.ip_network(f"{own_ip}/24", strict=False)
+    quién la tiene, y así la tabla ARP se llena con los equipos encendidos, aunque no respondan al ping. En una red
+    más grande que /22 solo se despiertan las direcciones de alrededor (ver WIDEST_WAKE_PREFIX)."""
+    network = ipaddress.ip_network(f"{own_ip}/{max(prefix, WIDEST_WAKE_PREFIX)}", strict=False)
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
         for host in network.hosts():
             try:
@@ -601,10 +606,11 @@ def devices(own_ip: Optional[str], salt: str, wait: float = 2.0, gateway: Option
     privada (aleatoria) se marca, porque casi siempre es un celular o una tableta."""
     if not own_ip:
         return []
-    wake_neighbors(own_ip)
+    prefix = network_prefix(own_ip)
+    wake_neighbors(own_ip, prefix)
     time.sleep(wait)
     table = run_command(["arp", "-a"]) if IS_WINDOWS else read_file("/proc/net/arp")
-    by_ip = same_subnet(parse_neighbors(table), own_ip)
+    by_ip = same_subnet(parse_neighbors(table), own_ip, prefix)
     mine = own_mac()
     if mine:
         by_ip[own_ip] = mine

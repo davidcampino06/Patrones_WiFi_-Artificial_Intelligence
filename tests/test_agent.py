@@ -224,7 +224,8 @@ class QuietDhcp:
 
 
 def test_devices_carry_a_fingerprint_vendor_and_name(monkeypatch):
-    monkeypatch.setattr(agent, "wake_neighbors", lambda ip: None)
+    monkeypatch.setattr(agent, "wake_neighbors", lambda ip, prefix=24: None)
+    monkeypatch.setattr(agent, "network_prefix", lambda ip: 24)
     monkeypatch.setattr(agent.time, "sleep", lambda _s: None)
     monkeypatch.setattr(agent, "identities", lambda *args, **kwargs: {})  # no real mDNS, UPnP or port probes
     monkeypatch.setattr(agent.discovery, "DHCP", QuietDhcp())  # no real DHCP listener in the tests
@@ -288,7 +289,8 @@ def test_detects_private_random_macs(mac, private):
 
 
 def test_devices_mark_private_macs_without_vendor(monkeypatch):
-    monkeypatch.setattr(agent, "wake_neighbors", lambda ip: None)
+    monkeypatch.setattr(agent, "wake_neighbors", lambda ip, prefix=24: None)
+    monkeypatch.setattr(agent, "network_prefix", lambda ip: 24)
     monkeypatch.setattr(agent.time, "sleep", lambda _s: None)
     monkeypatch.setattr(agent, "identities", lambda *args, **kwargs: {})  # no real mDNS, UPnP or port probes
     monkeypatch.setattr(agent.discovery, "DHCP", QuietDhcp())  # no real DHCP listener in the tests
@@ -674,7 +676,8 @@ def test_traffic_is_not_mixed_between_two_networks(tmp_path, monkeypatch):
 
 
 def test_the_name_a_phone_gave_when_asking_for_an_address_is_used(monkeypatch):
-    monkeypatch.setattr(agent, "wake_neighbors", lambda ip: None)
+    monkeypatch.setattr(agent, "wake_neighbors", lambda ip, prefix=24: None)
+    monkeypatch.setattr(agent, "network_prefix", lambda ip: 24)
     monkeypatch.setattr(agent.time, "sleep", lambda _s: None)
     monkeypatch.setattr(agent, "identities", lambda *args, **kwargs: {})
     monkeypatch.setattr(agent, "IS_WINDOWS", False)
