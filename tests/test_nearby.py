@@ -60,3 +60,18 @@ def test_an_open_network_with_a_similar_name_is_a_possible_lookalike_with_low_co
     lookalike = next(i for i in answer.inferences if i.code == "LOOKALIKE_NETWORK")
     assert lookalike.confidence == 0.35
     assert "no prueba que alguien quiera engañarte" in lookalike.recommendation
+
+
+def test_without_networks_or_without_a_connection_nothing_is_invented():
+    assert codes(nearby.analyze(scan([])).facts) == ["NO_NETWORKS"]
+    answer = nearby.analyze(scan([ap("Vecino"), ap("Otro", channel=11)]))
+    assert "NOT_CONNECTED" in codes(answer.facts)
+    assert answer.inferences == []
+    assert "pocas redes" in answer.uncertainty
+
+
+def test_old_security_nearby_and_on_the_own_network_are_reported():
+    answer = nearby.analyze(scan([ap("Casa", "WPA", connected=True), ap("Vieja", "WEP")]))
+
+    assert answer.facts[1].code == "OWN_NETWORK_OLD_SECURITY" and answer.facts[1].severity == Level.WARNING
+    assert "WEAK_SECURITY_NEARBY" in codes(answer.facts)
