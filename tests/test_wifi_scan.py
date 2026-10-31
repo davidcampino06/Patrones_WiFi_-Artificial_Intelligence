@@ -192,3 +192,44 @@ def test_control_characters_in_a_name_are_removed():
     assert wifi_scan.clean_ssid("Red\x00\x1b[31m roja\t") == "Red[31m roja"
     assert wifi_scan.clean_ssid("   ") is None
     assert len(wifi_scan.clean_ssid("x" * 100)) == 64
+
+
+def test_the_access_point_this_computer_is_connected_to():
+    assert wifi_scan.connected_bssid(INTERFACES_CONNECTED) == "a4:2b:b0:12:34:56"
+    assert wifi_scan.connected_bssid(INTERFACES_RADIO_OFF) is None
+    windows_10 = INTERFACES_CONNECTED.replace("AP BSSID", "BSSID")
+    assert wifi_scan.connected_bssid(windows_10) == "a4:2b:b0:12:34:56"
+
+
+# -------------------------------------------------------------------------------------------------- resultado
+
+def test_a_completed_scan_never_sends_a_mac():
+    result = scan_with({"mode=bssid": WINDOWS_10_EN, "interfaces": INTERFACES_CONNECTED})
+
+    assert result["status"] == "COMPLETED" and result["scanId"] == 12 and result["scanTool"] == "NETSH"
+    assert result["fresh"] is True and result["interfaceName"] == "Wi-Fi"
+    text = json.dumps(result)
+    for mac in ("a4:2b:b0:12:34:56", "a42bb0123456", "06:2b:b0:aa:bb:cc", "9c:a2:f4:00:00:02"):
+        assert mac not in text.lower()
+    first = result["accessPoints"][0]
+    assert first["bssid"] == fingerprint("a4:2b:b0:12:34:56") and len(first["bssid"]) == 24
+    assert first["bssidSuffix"] == "56"
+    assert first["connected"] is True and first["vendor"] == "TP-Link"
+    assert [ap["connected"] for ap in result["accessPoints"]].count(True) == 1
+
+
+def test_the_strongest_access_points_come_first_and_a_local_bssid_has_no_maker():
+    result = scan_with({"mode=bssid": WINDOWS_10_EN, "interfaces": INTERFACES_CONNECTED})
+
+    assert [ap["signalPercent"] for ap in result["accessPoints"]] == [88, 61, 40, 15]
+    hidden = result["accessPoints"][2]
+    assert "ssid" not in hidden or hidden["ssid"] is None
+    assert hidden["vendor"] is None  # 06:... is a locally administered BSSID: its maker cannot be known
+
+
+def test_a_bssid_repeated_by_the_system_is_sent_once():
+    twice = WINDOWS_10_EN.replace("a4:2b:b0:12:34:57", "a4:2b:b0:12:34:56")
+    result = scan_with({"mode=bssid": twice, "interfaces": ""})
+
+    assert len(result["accessPoints"]) == 3
+    assert result["accessPoints"][0]["signalPercent"] == 88
