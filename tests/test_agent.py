@@ -774,3 +774,56 @@ def test_a_delivery_that_fails_does_not_stop_the_agent(capsys):
     assert "llegó tarde" in capsys.readouterr().out
 
 
+class FakeTime:
+    def __init__(self):
+        self.now = 0.0
+        self.slept = []
+
+    def clock(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.slept.append(seconds)
+        self.now += seconds
+
+
+def test_while_waiting_it_asks_every_30_seconds_and_runs_the_requested_scan(monkeypatch):
+    fake, answers, ran = FakeTime(), [EmptyResponse(b""), FakeResponse(b'{"scanId": 7}')], []
+    monkeypatch.setattr(agent, "run_scan", lambda scan_id, server, key, salt, opener: ran.append((scan_id, fake.now)))
+
+    def opener(request, timeout):
+        return answers.pop(0) if answers else EmptyResponse(b"")
+
+    agent.wait_watching_scans(300, SERVER, LAB, "sal", sleep=fake.sleep, clock=fake.clock, opener=opener)
+
+    assert ran == [(7, 60.0)]  # asked at 30 s (nothing) and at 60 s (the user pressed the button)
+    assert fake.now == 300 and set(fake.slept) == {30}
+
+
+def test_a_server_without_scans_is_not_asked_again_until_the_next_report():
+    fake, calls = FakeTime(), []
+
+    def opener(request, timeout):
+        calls.append(request.full_url)
+        raise urllib.error.HTTPError(request.full_url, 404, "not found", {}, None)
+
+    agent.wait_watching_scans(300, SERVER, LAB, "sal", sleep=fake.sleep, clock=fake.clock, opener=opener)
+
+    assert len(calls) == 1 and fake.now == 300
+
+
+def test_a_server_that_asks_to_slow_down_is_respected():
+    fake, calls = FakeTime(), []
+
+    def opener(request, timeout):
+        calls.append(fake.now)
+        if len(calls) == 1:
+            raise urllib.error.HTTPError(request.full_url, 429, "slow", {"Retry-After": "45"}, None)
+        return EmptyResponse(b"")
+
+    agent.wait_watching_scans(120, SERVER, LAB, "sal", sleep=fake.sleep, clock=fake.clock, opener=opener)
+
+    assert calls == [30.0, 105.0]  # after the 429 it waited 45 s more before the next question
+    assert fake.now == 120
+
+
