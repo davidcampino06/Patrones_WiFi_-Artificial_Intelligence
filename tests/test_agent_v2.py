@@ -112,3 +112,25 @@ def test_every_name_says_where_it_came_from(announced, dhcp, router, hostname, n
 
     assert device.get("name") == name
     assert device.get("nameSource") == source
+
+
+def test_a_vendor_estimated_from_the_mac_is_never_presented_as_the_name():
+    device = agent.describe_device("192.168.1.23", "fc:fb:fb:11:22:33", "sal", "192.168.1.2", "192.168.1.1", None, {})
+
+    assert device["vendor"] == "Apple" and "name" not in device and "nameSource" not in device
+
+
+def test_router_names_are_asked_to_the_router_and_a_silent_router_gives_none():
+    class Source:
+        def names(self, ips):
+            return {"192.168.1.23": "Portatil-de-Ana.lan", "192.168.1.24": "192.168.1.24"}
+
+    assert agent.router_names("192.168.1.1", ["192.168.1.23", "192.168.1.24"], lambda gw: Source()) == {
+        "192.168.1.23": "Portatil-de-Ana.lan"}  # una "IP como nombre" no es un nombre
+
+    class Broken:
+        def names(self, ips):
+            raise OSError("el router no tiene DNS")
+
+    assert agent.router_names("192.168.1.1", ["192.168.1.23"], lambda gw: Broken()) == {}
+    assert agent.router_names(None, ["192.168.1.23"]) == {}
