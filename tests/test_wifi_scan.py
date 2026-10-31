@@ -394,3 +394,33 @@ class FakeWlan:
 
     def WlanCloseHandle(self, handle, reserved):
         self.closed = True
+
+
+def test_windows_is_asked_for_a_fresh_scan_on_each_adapter():
+    wlan, waited = FakeWlan(), []
+
+    assert wifi_scan.request_fresh_scan(wlan, sleep=waited.append) is True
+    assert wlan.scanned == [8, 8 + wifi_scan.WLAN_INTERFACE_INFO_SIZE]
+    assert waited == [wifi_scan.FRESH_SCAN_WAIT]
+    assert wlan.freed and wlan.closed
+
+
+def test_when_windows_refuses_the_last_list_is_used_without_waiting():
+    waited = []
+    assert wifi_scan.request_fresh_scan(FakeWlan(open_result=1062), sleep=waited.append) is False
+    refused = FakeWlan(scan_result=5)
+    assert wifi_scan.request_fresh_scan(refused, sleep=waited.append) is False
+    assert waited == [] and refused.closed
+
+
+# ------------------------------------------------------------------------------------------------ Windows real
+
+@pytest.mark.skipif(os.name != "nt", reason="WlanScan y netsh solo existen en Windows")
+def test_on_real_windows_the_scan_answers_with_a_known_state():
+    wifi_scan.request_fresh_scan()  # must not crash, whatever the machine has
+    result = wifi_scan.scan(1, "1.9.0", fingerprint, lambda mac: None)
+
+    assert result["scanTool"] == "NETSH"
+    assert result["status"] in ("COMPLETED", "FAILED")
+    if result["status"] == "FAILED":
+        assert result["failureReason"] in wifi_scan.FAILURES
