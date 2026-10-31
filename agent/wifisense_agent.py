@@ -6,6 +6,7 @@ Solo usa la biblioteca estándar de Python 3.9 o superior (no hay que instalar n
     python wifisense_agent.py pair CODIGO  conecta el agente con el código de Mi Wi-Fi > Instalar agente
     python wifisense_agent.py setup        guarda la clave del agente (se crea en Mi Wi-Fi > Agente)
     python wifisense_agent.py scan         muestra lo que mediría, sin enviar nada
+    python wifisense_agent.py nearby       escanea las redes Wi-Fi cercanas y las muestra, sin enviar nada
     python wifisense_agent.py run          envía un reporte cada 5 minutos (Ctrl + C para detener)
     python wifisense_agent.py run --once   envía un solo reporte
 
@@ -17,6 +18,9 @@ Qué mide y qué envía:
     para que los reconozcas como en el Bluetooth. Las direcciones MAC NO salen de tu computador: se envía una huella
     SHA-256 con una sal aleatoria propia de esta instalación.
   * Qué puertos de administración del router aceptan conexiones (solo se intenta conectar, no se envían datos).
+  * Cuando lo pide Mi Wi-Fi (o cada hora, si el servidor lo pide), las redes Wi-Fi cercanas que ve la antena: nombre,
+    señal, canal, banda y seguridad anunciada. De cada punto de acceso solo sale la huella de su BSSID y su último
+    byte, nunca la MAC completa, y nunca se leen las contraseñas guardadas (ver wifi_scan.py).
   * El tráfico de este computador desde el reporte anterior (bytes y paquetes por protocolo TCP, UDP e ICMP), leído
     de los contadores del sistema. Solo se guarda cuando el agente es el sensor de una red del equipo WiFiSense.
 """
@@ -1404,6 +1408,24 @@ def command_scan(_args) -> int:
     return 0
 
 
+def command_nearby(args) -> int:
+    """Muestra las redes Wi-Fi cercanas sin enviar nada (y, con --output, guarda el resultado tal como se enviaría:
+    sin ninguna MAC). Sirve para probar el escaneo en un computador real."""
+    salt = load_config().get("salt") or secrets.token_hex(16)
+    print("Escaneando las redes Wi-Fi cercanas (unos segundos)...")
+    result = wifi_scan.scan(0, AGENT_VERSION, lambda mac: mac_fingerprint(mac, salt), vendor_of)
+    print(wifi_scan.summary(result))
+    for ap in result.get("accessPoints") or []:
+        signal = f"{ap['signalPercent']} %" if ap.get("signalPercent") is not None else "?"
+        band = f"{ap['band']} GHz" if ap.get("band") else "?"
+        mark = "  <- conectado" if ap.get("connected") else ""
+        print(f"  {(ap.get('ssid') or '(red oculta)')[:32]:<32} {signal:>6}  canal {ap.get('channel') or '?':>3}  "
+              f"{band:<7} {ap.get('securityLabel') or ap.get('authentication')}{mark}")
+    if args.output:
+        Path(args.output).write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    return 0 if result.get("status") == "COMPLETED" else 1
+
+
 def next_wait(answer: dict, interval: int) -> int:
     """Mientras alguien identifica un equipo en la página, el servidor pide reportar cada minuto; nunca más seguido que
     MIN_INTERVAL ni más lento que el intervalo normal."""
@@ -1473,6 +1495,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     pair_parser.set_defaults(handler=command_pair)
     commands.add_parser("setup", help="guardar la clave del agente").set_defaults(handler=command_setup)
     commands.add_parser("scan", help="medir y mostrar sin enviar").set_defaults(handler=command_scan)
+    nearby = commands.add_parser("nearby", help="escanear las redes Wi-Fi cercanas y mostrarlas sin enviar")
+    nearby.add_argument("--output", help="guardar el resultado (sin MAC) en este archivo JSON")
+    nearby.set_defaults(handler=command_nearby)
     run = commands.add_parser("run", help="medir y enviar periódicamente")
     run.add_argument("--once", action="store_true", help="enviar un solo reporte y salir")
     run.add_argument("--interval", type=int, default=DEFAULT_INTERVAL, help="segundos entre reportes (mínimo 60)")

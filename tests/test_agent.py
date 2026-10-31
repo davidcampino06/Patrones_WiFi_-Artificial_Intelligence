@@ -697,6 +697,8 @@ def test_the_name_a_phone_gave_when_asking_for_an_address_is_used(monkeypatch):
     assert found[None]["name"] == "Galaxy-A54-de-Ana"  # MAC privada: sin DHCP no tendría nombre
     assert found[None]["kind"] == "PHONE"
     assert found["Apple"]["name"] == "iPhone-de-Luis"  # lo que dice el equipo gana al DNS de la red
+
+
 # --------------------------------------------------------------------------------- redes cercanas (1.9.0)
 
 SERVER = "https://wifisense.example.com"
@@ -827,3 +829,14 @@ def test_a_server_that_asks_to_slow_down_is_respected():
     assert fake.now == 120
 
 
+def test_nearby_shows_the_networks_and_saves_them_without_macs(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(agent, "load_config", lambda: {"salt": "sal"})
+    monkeypatch.setattr(agent.wifi_scan, "scanner_for", lambda: FakeScanner())
+    output = tmp_path / "cercanas.json"
+
+    assert agent.main(["nearby", "--output", str(output)]) == 0
+
+    printed = capsys.readouterr().out
+    assert "Vecino" in printed and "70 %" in printed and "a4:2b" not in printed
+    saved = json.loads(output.read_text(encoding="utf-8"))
+    assert saved["status"] == "COMPLETED" and "a4:2b:b0:12:34:56" not in output.read_text(encoding="utf-8")
