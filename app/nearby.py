@@ -114,3 +114,31 @@ def _count(number: int, one: str, many: str) -> str:
 
 def _plain(name: str | None) -> str:
     return re.sub(r"[^a-z0-9]", "", (name or "").lower())
+
+
+def _lookalikes(own: AccessPoint | None, others: list[AccessPoint]) -> list[Inference]:
+    if own is None or not own.ssid:
+        return []
+    mine = _plain(own.ssid)
+    found = []
+    for ap in others:
+        if not ap.ssid or ap.hidden:
+            continue
+        same_name = ap.ssid.strip() == own.ssid.strip()
+        similar = not same_name and len(mine) >= 4 and _plain(ap.ssid) != mine and (
+            _plain(ap.ssid).startswith(mine) or mine.startswith(_plain(ap.ssid)) and len(_plain(ap.ssid)) >= 4)
+        weaker = ap.authentication in ("OPEN", "WEP") and own.authentication not in ("OPEN", "WEP")
+        other_maker = bool(ap.vendor and own.vendor and ap.vendor != own.vendor)
+        if (same_name and (weaker or other_maker)) or (similar and weaker):
+            confidence = 0.5 if same_name and weaker else 0.35
+            found.append(Inference(
+                code="LOOKALIKE_NETWORK", severity=Level.WARNING, confidence=confidence,
+                title="Una red cercana se parece a la tuya",
+                evidence=f"«{ap.ssid}» " + ("tiene el mismo nombre que tu red" if same_name else "tiene un nombre parecido")
+                         + (" pero no pide contraseña" if ap.authentication == "OPEN" else "")
+                         + (" y es de otro fabricante" if other_maker else "") + ".",
+                recommendation="Si no es un repetidor tuyo, no te conectes a ella y revisa que tus equipos se conecten "
+                               "a tu red (no a la parecida). Esto solo no prueba que alguien quiera engañarte."))
+            if len(found) == 3:
+                break
+    return found
