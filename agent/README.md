@@ -77,6 +77,21 @@ y la seguridad que anuncia.
   marca `AGENT_NO_RESPONSE`.
 - **El servidor solo puede pedir un escaneo por su número**: el agente nunca ejecuta órdenes que lleguen del servidor.
 
+Prueba manual en un computador real (no envía nada):
+
+```cmd
+WiFiSenseAgente.exe nearby --output cercanas.json
+python wifisense_agent.py nearby
+```
+
+Muestra cada red con su señal, canal, banda y seguridad, y `cercanas.json` es exactamente lo que se enviaría (sin
+ninguna MAC). En GitHub Actions el instalador se prueba igual en Windows real: la máquina no tiene Wi-Fi, así que el
+escaneo debe terminar con un motivo conocido y sin ninguna MAC en el archivo.
+
+El código está en `agent/wifi_scan.py` (con `NetshScanner` y `NmcliScanner`, dos estrategias intercambiables que
+devuelven el mismo resultado) y la forma de leer los textos de `netsh`/`nmcli`, que comparten la medición y el
+escaneo, en `agent/wifi_text.py`.
+
 **Actualizar sin código (1.7.0).** Si el programa descargado es más nuevo que el instalado, la ventana muestra
 **«Actualizar a la versión X»**: detiene el agente, reemplaza el programa y lo vuelve a iniciar. Las claves y las redes
 ya agregadas se conservan; no hace falta ningún código.
