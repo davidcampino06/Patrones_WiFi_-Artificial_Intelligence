@@ -51,6 +51,65 @@ clase que acompaña la solicitud («android-dhcp-14», «MSFT 5.0») ayuda a sab
   de un equipo a otro: ahí solo el router conoce los nombres. Los celulares con «dirección privada» y sin nombre
   configurado tampoco dicen uno. Para esos equipos queda **«¿Cuál es este equipo?»** y el lápiz para nombrarlos.
 
+**Redes Wi-Fi cercanas (1.9.0).** En Mi Wi-Fi → **Redes cercanas**, el botón **«Escanear ahora»** le pide al agente
+que mire qué redes alcanza a ver la antena de su computador; además el servidor pide un escaneo cada hora con el
+reporte. Entre reportes, el agente pregunta cada 30 segundos si alguien pidió escanear, así el botón responde en menos
+de un minuto. De cada punto de acceso (BSSID) llega el nombre de la red, la señal, el canal, la banda, el tipo de radio
+y la seguridad que anuncia.
+
+- **Cómo:** en Windows le pide al sistema un escaneo nuevo (`WlanScan` de `wlanapi.dll`, sin permisos de administrador
+  ni nada que instalar) y unos segundos después lee `netsh wlan show networks mode=bssid`; si Windows no acepta el
+  escaneo nuevo, lee la última lista que tenga y la página lo dice («lista que ya tenía el sistema»). En Linux usa
+  `nmcli dev wifi list --rescan yes`. Los comandos se ejecutan con sus argumentos por separado, nunca con el shell, y
+  con 20 segundos de límite.
+- **Lo que no se inventa:** si el sistema no da un dato (Windows 10 no dice la banda; ninguno da la señal en dBm con
+  `netsh`), queda vacío. La banda solo se deduce del canal cuando el canal es de 2,4 GHz o de 5 GHz.
+- **Privacidad:** el BSSID tampoco sale del computador: se envía su huella con la misma sal de los equipos y solo su
+  último byte («termina en …:F1»), para que reconozcas tu router por la etiqueta. El fabricante se envía solo si el
+  BSSID es el de fábrica. Nunca se leen ni se exportan las contraseñas de los perfiles Wi-Fi.
+- **Ver una red no la hace tuya:** son solo las redes que la antena alcanzó a oír en ese momento (no todas las que
+  existen), y verlas no da permiso de conectarse ni de administrarlas.
+- **Cuando no se puede**, el escaneo falla con su motivo y la página lo explica: no hay adaptador Wi-Fi
+  (`NO_ADAPTER`), el Wi-Fi está apagado (`ADAPTER_OFF`), el servicio de Wi-Fi de Windows está detenido
+  (`SERVICE_OFF`), falta el permiso de ubicación de Windows 11 (`LOCATION_PERMISSION`), el comando falló o tardó
+  (`COMMAND_FAILED`, `TIMEOUT`), la respuesta no se entendió (`UNREADABLE_OUTPUT`) o el sistema no tiene una
+  herramienta conocida (`UNSUPPORTED_OS`, por ejemplo macOS). Si el agente no entrega en 3 minutos, el servidor lo
+  marca `AGENT_NO_RESPONSE`.
+- **El servidor solo puede pedir un escaneo por su número**: el agente nunca ejecuta órdenes que lleguen del servidor.
+
+Prueba manual en un computador real (no envía nada):
+
+```cmd
+WiFiSenseAgente.exe nearby --output cercanas.json
+python wifisense_agent.py nearby
+```
+
+Muestra cada red con su señal, canal, banda y seguridad, y `cercanas.json` es exactamente lo que se enviaría (sin
+ninguna MAC). En GitHub Actions el instalador se prueba igual en Windows real: la máquina no tiene Wi-Fi, así que el
+escaneo debe terminar con un motivo conocido y sin ninguna MAC en el archivo.
+
+El código está en `agent/wifi_scan.py` (con `NetshScanner` y `NmcliScanner`, dos estrategias intercambiables que
+devuelven el mismo resultado) y la forma de leer los textos de `netsh`/`nmcli`, que comparten la medición y el
+escaneo, en `agent/wifi_text.py`.
+
+**Nombres de los equipos: de dónde salen (2.0.0).** Además de lo que el equipo anuncia (mDNS, UPnP, NetBIOS, DHCP), el
+agente le pregunta el nombre de cada IP **directamente al DNS del router** (`router_sources.py`): muchos routers
+(dnsmasq: TP-Link, ASUS, OpenWrt y varios del operador) responden el nombre que cada equipo dio al pedir dirección.
+No usa la clave del router. Cada nombre va con su origen (`nameSource`): `ANNOUNCED` (lo dijo el equipo), `ROUTER` (lo
+dijo el router), `CONFIRMED` (el equipo y el router dicen lo mismo) o `DNS` (lo dijo la red). El fabricante por la MAC
+es una estimación y nunca se presenta como el nombre.
+
+**Redes grandes (2.0.0).** Hasta la 1.9 el agente suponía que la red era /24 y no veía a un compañero con una IP fuera
+de ese pedazo (por ejemplo 10.20.5.40 y 10.20.7.12 en una red /21 de la universidad). Ahora lee la máscara real
+(`ipconfig` en cualquier idioma o `ip addr`) y, para no inundar una red enorme, despierta como mucho las 1022
+direcciones de alrededor (/22). Si la red tiene **aislamiento de clientes** (común en universidades), ningún equipo
+ve a los demás y solo el router los conoce: eso no lo resuelve ningún agente.
+
+**El router no se administra desde WiFiSense.** La lista oficial de clientes, bloquear un equipo o cambiar la
+contraseña necesitan la clave del router y una integración por modelo; hoy no existe ninguna, así que no se pide ni se
+guarda esa clave. `router_sources.py` deja la abstracción lista (`RouterSource`, `source_for`) para agregar una
+integración oficial más adelante sin tocar el resto del agente.
+
 **Actualizar sin código (1.7.0).** Si el programa descargado es más nuevo que el instalado, la ventana muestra
 **«Actualizar a la versión X»**: detiene el agente, reemplaza el programa y lo vuelve a iniciar. Las claves y las redes
 ya agregadas se conservan; no hace falta ningún código.
@@ -99,11 +158,13 @@ para probar cambios. Solo necesita **Python 3.9 o superior**; no instala nada m�
 ```cmd
 python wifisense_agent.py pair K7QM-4RZD
 python wifisense_agent.py scan
+python wifisense_agent.py nearby
 python wifisense_agent.py run
 ```
 
 `pair` cambia el código por la clave del agente y la guarda solo para tu usuario (`%APPDATA%\WiFiSense\agent.json` en Windows,
 `~/.config/WiFiSense/agent.json` en Linux). `scan` mide y muestra exactamente lo que se enviaría, sin enviar nada.
+`nearby` escanea las redes Wi-Fi cercanas y las muestra, sin enviar nada.
 `run` envía un reporte cada 5 minutos hasta que pulses Ctrl + C (`run --once` envía uno solo).
 
 Si Windows no deja leer los datos del Wi-Fi: Configuración → Privacidad y seguridad → Ubicación → activa
@@ -115,6 +176,7 @@ Si Windows no deja leer los datos del Wi-Fi: Configuración → Privacidad y seg
 |---|---|
 | Nombre de la red, seguridad, cifrado, señal, canal, banda | `netsh wlan show interfaces` (Windows) o `nmcli` (Linux) |
 | Redes vecinas por canal (para recomendar el mejor) | `netsh wlan show networks mode=bssid` o `nmcli` |
+| Redes cercanas con su señal, canal, banda y seguridad (desde 1.9.0, cuando se pide o cada hora) | escaneo nuevo con `WlanScan` y lectura con `netsh wlan show networks mode=bssid`; en Linux `nmcli --rescan yes` |
 | Latencia, jitter y pérdida hacia internet | 10 conexiones TCP a 1.1.1.1:443 |
 | Latencia hacia el router | 5 conexiones TCP al router |
 | Equipos conectados | un datagrama vacío a cada dirección de la red para llenar la tabla ARP y luego `arp -a` |
@@ -133,14 +195,15 @@ misma certeza:
 
 | Qué | Certeza | Por qué |
 |---|---|---|
-| Redes Wi-Fi vecinas y su canal | **Medido** | Las detecta la tarjeta Wi-Fi del computador (`netsh` / `nmcli`) |
+| Redes Wi-Fi vecinas y su canal | **Medido** | Las detecta la tarjeta Wi-Fi del computador (`netsh` / `nmcli`); solo las que alcanza a oír en ese momento |
 | Latencia, jitter, pérdida, señal, tráfico de este computador | **Medido** | Conexiones reales y contadores del sistema |
 | Equipos que respondieron en la red local | **Medido, pero incompleto** | Están en la tabla ARP después del barrido. Un equipo dormido o que no responde puede faltar, y uno que acaba de salir puede seguir unos minutos |
 | «Este computador» y «Router» | **Seguro** | Son la IP del propio agente y la puerta de enlace del sistema |
 | Fabricante | **Deducido** de la MAC (OUI) | Dice quién fabricó la tarjeta, no qué equipo es ni de quién es; con MAC privada no se puede saber |
 | Nombre y modelo | **Lo que el equipo anuncia** (mDNS, UPnP, NetBIOS) | Lo eligió su dueño o el fabricante; un equipo puede anunciar cualquier nombre |
 | Tipo (celular, TV, impresora…) | **Suposición** | Sale del nombre, los servicios y los puertos que ofrece; la página lo muestra como «Parece…» |
-| Equipos confirmados por el router | **No disponible** | Solo el router sabe con certeza quién está conectado, y los routers de la casa y de la sede no ofrecen una API ni SNMP |
+| Nombre que da el router (2.0.0) | **Lo que el router guardó** | El DNS del router repite el nombre que el equipo dio al pedir dirección; cuando coincide con el que anuncia el equipo, la página lo muestra como confirmado |
+| Lista oficial de clientes del router | **No disponible** | Solo el router la tiene, y leerla necesita su clave y una integración por modelo que WiFiSense no tiene |
 
 Por eso existe el asistente **«¿Cuál es este equipo?»**: confirmar un equipo apagando su Wi-Fi es más fiable que
 cualquier suposición. WiFiSense nunca expulsa, bloquea ni interfiere equipos: para sacar a alguien de la red hay que
@@ -149,7 +212,8 @@ cambiar la clave del Wi-Fi o bloquearlo en el router, y la página explica cómo
 ## Privacidad y seguridad
 
 - Las direcciones MAC **no salen del computador**: se envía una huella SHA-256 con una sal aleatoria creada en esta
-  instalación. Sirve para saber si un equipo es nuevo, pero no para saber cuál es.
+  instalación. Sirve para saber si un equipo es nuevo, pero no para saber cuál es. Lo mismo con el BSSID de las redes
+  cercanas (solo viaja su último byte).
 - De cada equipo se envía el fabricante, el nombre y el modelo que **él mismo anuncia** en la red (como en la lista
   de Bluetooth) y el tipo que el agente deduce, para que lo reconozcas. No se envían IP ni el nombre del usuario del
   computador.

@@ -6,6 +6,7 @@ Solo usa la biblioteca estándar de Python 3.9 o superior (no hay que instalar n
     python wifisense_agent.py pair CODIGO  conecta el agente con el código de Mi Wi-Fi > Instalar agente
     python wifisense_agent.py setup        guarda la clave del agente (se crea en Mi Wi-Fi > Agente)
     python wifisense_agent.py scan         muestra lo que mediría, sin enviar nada
+    python wifisense_agent.py nearby       escanea las redes Wi-Fi cercanas y las muestra, sin enviar nada
     python wifisense_agent.py run          envía un reporte cada 5 minutos (Ctrl + C para detener)
     python wifisense_agent.py run --once   envía un solo reporte
 
@@ -17,6 +18,9 @@ Qué mide y qué envía:
     para que los reconozcas como en el Bluetooth. Las direcciones MAC NO salen de tu computador: se envía una huella
     SHA-256 con una sal aleatoria propia de esta instalación.
   * Qué puertos de administración del router aceptan conexiones (solo se intenta conectar, no se envían datos).
+  * Cuando lo pide Mi Wi-Fi (o cada hora, si el servidor lo pide), las redes Wi-Fi cercanas que ve la antena: nombre,
+    señal, canal, banda y seguridad anunciada. De cada punto de acceso solo sale la huella de su BSSID y su último
+    byte, nunca la MAC completa, y nunca se leen las contraseñas guardadas (ver wifi_scan.py).
   * El tráfico de este computador desde el reporte anterior (bytes y paquetes por protocolo TCP, UDP e ICMP), leído
     de los contadores del sistema. Solo se guarda cuando el agente es el sensor de una red del equipo WiFiSense.
 """
@@ -38,7 +42,6 @@ import subprocess
 import sys
 import threading
 import time
-import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -46,10 +49,13 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable, Optional
 
-AGENT_VERSION = "1.8.0"
+AGENT_VERSION = "1.9.0"
 DEFAULT_SERVER = "https://patroneswifibackend-production.up.railway.app"
 REPORT_PATH = "/api/agent/reports"
 PAIR_PATH = "/api/agent/pair"
+SCANS_PATH = "/api/agent/scans"
+NEXT_SCAN_PATH = "/api/agent/scans/next"
+SCAN_POLL_SECONDS = 30  # entre reportes, cada cuánto se pregunta si el usuario pidió escanear
 DEFAULT_INTERVAL = 300
 MIN_INTERVAL = 60
 ROUTER_PORTS = (21, 22, 23, 53, 80, 443, 445, 1900, 7547, 8080, 8443)
@@ -90,11 +96,12 @@ def read_file(path: str) -> str:
 
 # ------------------------------------------------------------------------------------------------------- Wi-Fi
 
-def normalize_key(key: str) -> str:
-    """Clave de netsh en minúsculas, sin tildes ni espacios ('Autenticación' -> 'autenticacion')."""
-    ascii_key = unicodedata.normalize("NFKD", key.lower())
-    return "".join(c for c in ascii_key if "a" <= c <= "z")
-
+try:  # el agente como paquete (pruebas) o como script suelto (PyInstaller, python wifisense_agent.py)
+    from agent.wifi_text import (authentication_of, band_of, cipher_of, first_number, key_values, normalize_key,
+                                 split_nmcli, CIPHERS)
+except ImportError:  # pragma: no cover
+    from wifi_text import (authentication_of, band_of, cipher_of, first_number, key_values, normalize_key,
+                           split_nmcli, CIPHERS)
 
 # Prefijos de cada campo en inglés y en español (incluye cómo se ven si la consola dañó las tildes).
 WIFI_KEYS = {
@@ -122,59 +129,6 @@ def field_of(key: str) -> Optional[str]:
                 return field
         elif any(normalized.startswith(prefix) for prefix in prefixes):
             return field
-    return None
-
-
-def key_values(text: str) -> list[tuple[str, str]]:
-    pairs = []
-    for line in text.splitlines():
-        if ":" in line:
-            key, value = line.split(":", 1)
-            pairs.append((key.strip(), value.strip()))
-    return pairs
-
-
-def first_number(text: str) -> Optional[float]:
-    match = re.search(r"-?\d+(?:[.,]\d+)?", text or "")
-    return float(match.group().replace(",", ".")) if match else None
-
-
-def authentication_of(auth: str, cipher: str = "") -> str:
-    """Texto del sistema -> OPEN, WEP, WPA, WPA2, WPA3 o UNKNOWN (lo que entiende la auditoría de la IA)."""
-    auth_u, cipher_u = (auth or "").upper(), (cipher or "").upper()
-    if "WPA3" in auth_u or "SAE" in auth_u or "OWE" in auth_u:
-        return "WPA3"
-    if "WPA2" in auth_u or "RSN" in auth_u:
-        return "WPA2"
-    if "WPA" in auth_u:
-        return "WPA"
-    if "WEP" in cipher_u or "WEP" in auth_u or "SHARED" in auth_u or "COMPARTIDA" in auth_u:
-        return "WEP"
-    if auth_u.startswith(("OPEN", "ABIERT")) or auth_u in ("--", "NONE"):
-        return "OPEN"
-    return "UNKNOWN"
-
-
-CIPHERS = (("GCMP-256", "GCMP-256"), ("GCMP", "GCMP"), ("CCMP", "CCMP"), ("AES", "CCMP"), ("TKIP", "TKIP"),
-           ("WEP", "WEP"), ("NINGUN", "NONE"), ("NONE", "NONE"))
-
-
-def cipher_of(text: str) -> Optional[str]:
-    """Nombre corto del cifrado. Algunas versiones de Windows escriben una descripción larga (por ejemplo varios
-    cifrados o el nombre del proveedor); el servidor solo acepta hasta 20 caracteres."""
-    upper = (text or "").upper()
-    for token, name in CIPHERS:
-        if token in upper:
-            return name
-    return (text or "").strip()[:20] or None
-
-
-def band_of(band_text: str, channel: Optional[int]) -> Optional[str]:
-    number = first_number(band_text or "")
-    if number is not None:
-        return "2.4" if number < 3 else "5" if number < 5.9 else "6"
-    if channel:
-        return "2.4" if channel <= 14 else "5"
     return None
 
 
@@ -224,11 +178,6 @@ def parse_netsh_networks(text: str) -> list[tuple[str, int]]:
             if channel:
                 found.append((ssid, int(channel)))
     return found
-
-
-def split_nmcli(line: str) -> list[str]:
-    """nmcli -t separa con ':' y escapa los ':' de los valores con '\\:'."""
-    return [part.replace("\\:", ":") for part in re.split(r"(?<!\\):", line)]
 
 
 def parse_nmcli(text: str) -> tuple[dict, list[tuple[str, int]]]:
@@ -363,10 +312,54 @@ def same_subnet(ips: dict[str, str], own_ip: str, prefix: int = 24) -> dict[str,
             if ipaddress.ip_address(ip) in network and ipaddress.ip_address(ip) != network.broadcast_address}
 
 
-def wake_neighbors(own_ip: str) -> None:
+# Hasta la 1.9 el agente suponía que la red era /24 (254 direcciones) y no veía a los equipos con una IP fuera de ese
+# pedazo: en las redes grandes (universidades, empresas) dos portátiles juntos pueden tener 10.20.5.40 y 10.20.7.12.
+# Desde la 2.0.0 se lee la máscara real; para no inundar una red enorme, se despiertan como mucho las 1022
+# direcciones de alrededor (/22). Lo que ya está en la tabla ARP se acepta con la máscara real.
+DEFAULT_PREFIX = 24
+WIDEST_WAKE_PREFIX = 22
+
+
+def parse_ipconfig_prefix(text: str, own_ip: str) -> Optional[int]:
+    """Máscara de la interfaz con ``own_ip`` en 'ipconfig' (Windows, en cualquier idioma): la primera línea después
+    de la IP cuyo valor es una máscara válida (255.x.x.x)."""
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if not re.search(rf"(?<![\d.]){re.escape(own_ip)}(?![\d.])", line):
+            continue
+        for following in lines[index + 1:index + 6]:
+            value = following.split(":", 1)[-1].strip()
+            if re.fullmatch(r"255\.\d{1,3}\.\d{1,3}\.\d{1,3}", value):
+                try:
+                    return ipaddress.IPv4Network(f"0.0.0.0/{value}").prefixlen
+                except ValueError:
+                    return None
+        return None
+    return None
+
+
+def parse_ip_addr_prefix(text: str, own_ip: str) -> Optional[int]:
+    """Prefijo de ``own_ip`` en 'ip -o -4 addr show' (Linux): 'inet 10.20.5.40/21 brd ...'."""
+    match = re.search(rf"inet {re.escape(own_ip)}/(\d{{1,2}})\b", text)
+    return int(match.group(1)) if match and 8 <= int(match.group(1)) <= 32 else None
+
+
+def network_prefix(own_ip: Optional[str]) -> int:
+    """El prefijo real de la red de este computador; /24 si el sistema no lo dice."""
+    if not own_ip:
+        return DEFAULT_PREFIX
+    if IS_WINDOWS:
+        found = parse_ipconfig_prefix(run_command(["ipconfig"]), own_ip)
+    else:
+        found = parse_ip_addr_prefix(run_command(["ip", "-o", "-4", "addr", "show"]), own_ip)
+    return found if found and 8 <= found <= 30 else DEFAULT_PREFIX
+
+
+def wake_neighbors(own_ip: str, prefix: int = DEFAULT_PREFIX) -> None:
     """Un datagrama vacío al puerto 9 (discard) de cada dirección de la red obliga al sistema a preguntar por ARP
-    quién la tiene, y así la tabla ARP se llena con los equipos encendidos, aunque no respondan al ping."""
-    network = ipaddress.ip_network(f"{own_ip}/24", strict=False)
+    quién la tiene, y así la tabla ARP se llena con los equipos encendidos, aunque no respondan al ping. En una red
+    más grande que /22 solo se despiertan las direcciones de alrededor (ver WIDEST_WAKE_PREFIX)."""
+    network = ipaddress.ip_network(f"{own_ip}/{max(prefix, WIDEST_WAKE_PREFIX)}", strict=False)
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
         for host in network.hosts():
             try:
@@ -592,8 +585,12 @@ def own_mac() -> Optional[str]:
 
 try:  # el agente como paquete (pruebas) o como script suelto (PyInstaller, python wifisense_agent.py)
     from agent import device_discovery as discovery
+    from agent import wifi_scan
+    from agent import router_sources
 except ImportError:  # pragma: no cover
     import device_discovery as discovery
+    import wifi_scan
+    import router_sources
 
 IDENTITY_MAX_AGE = 1800  # lo que anuncian los equipos y sus puertos cambia poco: se revisa cada 30 minutos
 _identity_cache: dict = {"at": 0.0, "macs": frozenset(), "by_mac": {}}
@@ -620,10 +617,11 @@ def devices(own_ip: Optional[str], salt: str, wait: float = 2.0, gateway: Option
     privada (aleatoria) se marca, porque casi siempre es un celular o una tableta."""
     if not own_ip:
         return []
-    wake_neighbors(own_ip)
+    prefix = network_prefix(own_ip)
+    wake_neighbors(own_ip, prefix)
     time.sleep(wait)
     table = run_command(["arp", "-a"]) if IS_WINDOWS else read_file("/proc/net/arp")
-    by_ip = same_subnet(parse_neighbors(table), own_ip)
+    by_ip = same_subnet(parse_neighbors(table), own_ip, prefix)
     mine = own_mac()
     if mine:
         by_ip[own_ip] = mine
@@ -639,18 +637,42 @@ def devices(own_ip: Optional[str], salt: str, wait: float = 2.0, gateway: Option
     except Exception as error:  # reconocer equipos es un extra: si falla, se envían como antes
         print(f"  aviso: no se pudo identificar los equipos: {error}", file=sys.stderr)
         announced = {}
+    from_router = router_names(gateway, [ip for ip in by_ip if ip not in (own_ip, gateway)])
     found = []
     for ip, mac in sorted(by_ip.items(), key=lambda item: item[1]):
         found.append(describe_device(ip, mac, salt, own_ip, gateway, own_name if ip == own_ip else names.get(ip),
-                                     announced.get(mac, {}), dhcp.get(mac, {})))
+                                     announced.get(mac, {}), dhcp.get(mac, {}), from_router.get(ip)))
     return found[:MAX_DEVICES]
 
 
+def router_names(gateway: Optional[str], ips: list[str], source_factory=None) -> dict[str, str]:
+    """Nombres que el propio router conoce (su DNS, sin clave). Si el router no responde, no hay nombres de ahí."""
+    if not gateway or not ips:
+        return {}
+    source = (source_factory or router_sources.source_for)(gateway)
+    if source is None:
+        return {}
+    try:
+        return {ip: name for ip, name in source.names(ips).items() if clean_hostname(name, ip)}
+    except Exception as error:  # el router puede no tener DNS: es un extra
+        print(f"  aviso: el router no respondió nombres: {error}", file=sys.stderr)
+        return {}
+
+
+def same_name(first: Optional[str], second: Optional[str]) -> bool:
+    """«Portatil-de-Ana» y «portatil-de-ana.lan» son el mismo nombre."""
+    def plain(name: Optional[str]) -> str:
+        return re.sub(r"[^a-z0-9]", "", (name or "").lower().split(".")[0])
+    return bool(plain(first)) and plain(first) == plain(second)
+
+
 def describe_device(ip: str, mac: str, salt: str, own_ip: str, gateway: Optional[str], hostname: Optional[str],
-                    announced: dict, dhcp: Optional[dict] = None) -> dict:
+                    announced: dict, dhcp: Optional[dict] = None, router_name: Optional[str] = None) -> dict:
     """Lo que se envía de un equipo: su huella (nunca la MAC), fabricante, nombre, modelo, tipo y papel. El nombre
-    sale, en este orden, de lo que anuncia por mDNS o UPnP, de lo que dijo al pedir dirección (DHCP) o de la red
-    (DNS inverso, NetBIOS o mDNS)."""
+    sale, en este orden, de lo que anuncia por mDNS o UPnP, de lo que dijo al pedir dirección (DHCP), del DNS del
+    router o de la red (DNS inverso, NetBIOS o mDNS). Desde la 2.0.0 se dice de dónde salió (nameSource):
+    ANNOUNCED (lo dijo el equipo), ROUTER (lo dijo el router), DNS (lo dijo la red) o CONFIRMED (el equipo y el
+    router dicen lo mismo). El fabricante por la MAC es una estimación y nunca se presenta como el nombre."""
     dhcp = dhcp or {}
     device = {"id": mac_fingerprint(mac, salt)}
     vendor = vendor_of(mac)
@@ -660,9 +682,19 @@ def describe_device(ip: str, mac: str, salt: str, own_ip: str, gateway: Optional
     elif private:
         device["privateMac"] = True  # casi siempre un celular o tableta con la MAC aleatoria activada
     # El nombre que el equipo anuncia por mDNS o UPnP ("iPhone de Ana", "Sala TV") es el que la persona le puso.
-    name = announced.get("name") or clean_hostname(dhcp.get("name"), ip) or hostname
+    own_name = announced.get("name") or clean_hostname(dhcp.get("name"), ip)
+    from_router = clean_hostname(router_name, ip)
+    name = own_name or from_router or hostname
     if name:
         device["name"] = name[:63]
+        if own_name and from_router and same_name(own_name, from_router):
+            device["nameSource"] = "CONFIRMED"
+        elif own_name:
+            device["nameSource"] = "ANNOUNCED"
+        elif from_router:
+            device["nameSource"] = "ROUTER"
+        else:
+            device["nameSource"] = "DNS"
     if announced.get("model"):
         device["model"] = announced["model"][:63]
     if ip == own_ip:
@@ -1079,6 +1111,85 @@ def send(report: dict, server: str, key: str, opener=urllib.request.urlopen) -> 
         raise SendError(f"no se pudo conectar con el servidor ({getattr(error, 'reason', error)})")
 
 
+# ------------------------------------------------------------------------------------- redes cercanas (1.9.0)
+
+class ScansUnavailable(Exception):
+    """El servidor no ofrece escaneos a esta clave (un backend anterior, o la clave es del sensor de una red del
+    equipo): se deja de preguntar hasta el próximo reporte."""
+
+
+def agent_call(method: str, path: str, server: str, key: str, body: Optional[dict] = None,
+               opener=urllib.request.urlopen) -> tuple[int, dict]:
+    """Llamada del agente al servidor con su clave; (código, respuesta). Los errores salen como SendError."""
+    request = urllib.request.Request(
+        validate_server(server) + path, method=method,
+        data=json.dumps(body).encode() if body is not None else None,
+        headers={"Content-Type": "application/json", "X-Agent-Key": key,
+                 "User-Agent": f"WiFiSense-Agent/{AGENT_VERSION}"})
+    try:
+        with opener(request, timeout=30) as response:
+            status = getattr(response, "status", 200)
+            raw = response.read() or b"{}"
+            return status, json.loads(raw) if status != 204 else {}
+    except urllib.error.HTTPError as error:
+        if error.code in (401, 403, 404, 405):
+            raise ScansUnavailable(str(error.code))
+        if error.code == 429:
+            retry = error.headers.get("Retry-After") if error.headers else None
+            raise SendError("demasiadas consultas seguidas", retry_after=int(retry) if retry and retry.isdigit() else 30)
+        raise SendError(f"el servidor respondió {error.code}{server_detail(error)}")
+    except (urllib.error.URLError, OSError, ValueError) as error:
+        raise SendError(f"no se pudo conectar con el servidor ({getattr(error, 'reason', error)})")
+
+
+def next_scan(server: str, key: str, opener=urllib.request.urlopen) -> Optional[int]:
+    """El número del escaneo que el usuario pidió en Mi Wi-Fi, o None si no hay ninguno. El servidor solo puede pedir
+    un escaneo: el agente nunca ejecuta órdenes que lleguen del servidor."""
+    status, answer = agent_call("GET", NEXT_SCAN_PATH, server, key, opener=opener)
+    return scan_id_of(answer) if status == 200 else None
+
+
+def scan_id_of(answer) -> Optional[int]:
+    scan_id = answer.get("scanId") if isinstance(answer, dict) else None
+    return scan_id if isinstance(scan_id, int) and not isinstance(scan_id, bool) and scan_id > 0 else None
+
+
+def run_scan(scan_id: int, server: str, key: str, salt: str, opener=urllib.request.urlopen, scanner=None) -> dict:
+    """Escanea las redes cercanas y entrega el resultado al escaneo ``scan_id``."""
+    result = wifi_scan.scan(scan_id, AGENT_VERSION, lambda mac: mac_fingerprint(mac, salt), vendor_of, scanner)
+    print(f"  {wifi_scan.summary(result)}")
+    try:
+        agent_call("POST", SCANS_PATH, server, key, result, opener=opener)
+    except (SendError, ScansUnavailable) as error:
+        print(f"  No se entregó el escaneo: {error}")
+    return result
+
+
+def wait_watching_scans(seconds: int, server: str, key: str, salt: str, sleep: Callable[[float], None] = time.sleep,
+                        clock: Callable[[], float] = time.monotonic, opener=urllib.request.urlopen) -> None:
+    """Espera hasta el próximo reporte, preguntando cada 30 segundos si el usuario pidió escanear las redes cercanas
+    (así el botón de la página responde en menos de un minuto). Una consulta fallida no cambia la espera; si el
+    servidor no ofrece escaneos a esta clave (404), no se vuelve a preguntar hasta el próximo reporte."""
+    end = clock() + seconds
+    asking = True
+    while True:
+        left = end - clock()
+        if left <= 0:
+            return
+        sleep(min(SCAN_POLL_SECONDS, left) if asking else left)
+        if not asking or clock() >= end:
+            continue
+        try:
+            scan_id = next_scan(server, key, opener=opener)
+            if scan_id is not None:
+                run_scan(scan_id, server, key, salt, opener=opener)
+        except ScansUnavailable:
+            asking = False
+        except SendError as error:
+            if error.retry_after:
+                sleep(min(error.retry_after, max(end - clock(), 0)))
+
+
 CODE_PATTERN = re.compile(r"^[A-HJKMNP-Z2-9]{8}$")
 
 
@@ -1297,6 +1408,24 @@ def command_scan(_args) -> int:
     return 0
 
 
+def command_nearby(args) -> int:
+    """Muestra las redes Wi-Fi cercanas sin enviar nada (y, con --output, guarda el resultado tal como se enviaría:
+    sin ninguna MAC). Sirve para probar el escaneo en un computador real."""
+    salt = load_config().get("salt") or secrets.token_hex(16)
+    print("Escaneando las redes Wi-Fi cercanas (unos segundos)...")
+    result = wifi_scan.scan(0, AGENT_VERSION, lambda mac: mac_fingerprint(mac, salt), vendor_of)
+    print(wifi_scan.summary(result))
+    for ap in result.get("accessPoints") or []:
+        signal = f"{ap['signalPercent']} %" if ap.get("signalPercent") is not None else "?"
+        band = f"{ap['band']} GHz" if ap.get("band") else "?"
+        mark = "  <- conectado" if ap.get("connected") else ""
+        print(f"  {(ap.get('ssid') or '(red oculta)')[:32]:<32} {signal:>6}  canal {ap.get('channel') or '?':>3}  "
+              f"{band:<7} {ap.get('securityLabel') or ap.get('authentication')}{mark}")
+    if args.output:
+        Path(args.output).write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    return 0 if result.get("status") == "COMPLETED" else 1
+
+
 def next_wait(answer: dict, interval: int) -> int:
     """Mientras alguien identifica un equipo en la página, el servidor pide reportar cada minuto; nunca más seguido que
     MIN_INTERVAL ni más lento que el intervalo normal."""
@@ -1341,6 +1470,8 @@ def command_run(args) -> int:
                 if counters:
                     save_traffic_state(counters, network=tag)
                 print(f"  Enviado a «{network.get('network') or 'tu red'}». {answer.get('summary', '')}".rstrip())
+                if scan_id_of(answer) is not None:
+                    run_scan(scan_id_of(answer), config["server"], network["key"], salt)
             except SendError as error:
                 print(f"  No se envió: {error}")
                 if error.fatal:
@@ -1350,7 +1481,10 @@ def command_run(args) -> int:
                 wait = max(interval, error.retry_after or 0)
         if args.once:
             return 0 if sent else 1
-        time.sleep(wait)
+        if sent:
+            wait_watching_scans(wait, config["server"], network["key"], salt)
+        else:
+            time.sleep(wait)
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -1361,6 +1495,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     pair_parser.set_defaults(handler=command_pair)
     commands.add_parser("setup", help="guardar la clave del agente").set_defaults(handler=command_setup)
     commands.add_parser("scan", help="medir y mostrar sin enviar").set_defaults(handler=command_scan)
+    nearby = commands.add_parser("nearby", help="escanear las redes Wi-Fi cercanas y mostrarlas sin enviar")
+    nearby.add_argument("--output", help="guardar el resultado (sin MAC) en este archivo JSON")
+    nearby.set_defaults(handler=command_nearby)
     run = commands.add_parser("run", help="medir y enviar periódicamente")
     run.add_argument("--once", action="store_true", help="enviar un solo reporte y salir")
     run.add_argument("--interval", type=int, default=DEFAULT_INTERVAL, help="segundos entre reportes (mínimo 60)")

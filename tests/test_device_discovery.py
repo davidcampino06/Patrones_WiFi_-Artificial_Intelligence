@@ -104,7 +104,7 @@ def test_the_agent_sends_name_model_kind_and_role_but_never_the_mac():
                                    "PC-JAIDER", {})
 
     assert phone == {"id": agent.mac_fingerprint("da:a1:19:00:00:01", "sal"), "privateMac": True,
-                     "name": "iPhone de Ana", "model": "iPhone15,2", "kind": "PHONE"}
+                     "name": "iPhone de Ana", "nameSource": "ANNOUNCED", "model": "iPhone15,2", "kind": "PHONE"}
     assert router["role"] == "ROUTER" and "kind" not in router
     assert itself["role"] == "SELF" and itself["kind"] == "COMPUTER" and itself["name"] == "PC-JAIDER"
     assert "da:a1:19" not in str(phone)

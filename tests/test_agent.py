@@ -224,7 +224,8 @@ class QuietDhcp:
 
 
 def test_devices_carry_a_fingerprint_vendor_and_name(monkeypatch):
-    monkeypatch.setattr(agent, "wake_neighbors", lambda ip: None)
+    monkeypatch.setattr(agent, "wake_neighbors", lambda ip, prefix=24: None)
+    monkeypatch.setattr(agent, "network_prefix", lambda ip: 24)
     monkeypatch.setattr(agent.time, "sleep", lambda _s: None)
     monkeypatch.setattr(agent, "identities", lambda *args, **kwargs: {})  # no real mDNS, UPnP or port probes
     monkeypatch.setattr(agent.discovery, "DHCP", QuietDhcp())  # no real DHCP listener in the tests
@@ -288,7 +289,8 @@ def test_detects_private_random_macs(mac, private):
 
 
 def test_devices_mark_private_macs_without_vendor(monkeypatch):
-    monkeypatch.setattr(agent, "wake_neighbors", lambda ip: None)
+    monkeypatch.setattr(agent, "wake_neighbors", lambda ip, prefix=24: None)
+    monkeypatch.setattr(agent, "network_prefix", lambda ip: 24)
     monkeypatch.setattr(agent.time, "sleep", lambda _s: None)
     monkeypatch.setattr(agent, "identities", lambda *args, **kwargs: {})  # no real mDNS, UPnP or port probes
     monkeypatch.setattr(agent.discovery, "DHCP", QuietDhcp())  # no real DHCP listener in the tests
@@ -674,7 +676,8 @@ def test_traffic_is_not_mixed_between_two_networks(tmp_path, monkeypatch):
 
 
 def test_the_name_a_phone_gave_when_asking_for_an_address_is_used(monkeypatch):
-    monkeypatch.setattr(agent, "wake_neighbors", lambda ip: None)
+    monkeypatch.setattr(agent, "wake_neighbors", lambda ip, prefix=24: None)
+    monkeypatch.setattr(agent, "network_prefix", lambda ip: 24)
     monkeypatch.setattr(agent.time, "sleep", lambda _s: None)
     monkeypatch.setattr(agent, "identities", lambda *args, **kwargs: {})
     monkeypatch.setattr(agent, "IS_WINDOWS", False)
@@ -694,3 +697,146 @@ def test_the_name_a_phone_gave_when_asking_for_an_address_is_used(monkeypatch):
     assert found[None]["name"] == "Galaxy-A54-de-Ana"  # MAC privada: sin DHCP no tendría nombre
     assert found[None]["kind"] == "PHONE"
     assert found["Apple"]["name"] == "iPhone-de-Luis"  # lo que dice el equipo gana al DNS de la red
+
+
+# --------------------------------------------------------------------------------- redes cercanas (1.9.0)
+
+SERVER = "https://wifisense.example.com"
+
+
+class EmptyResponse(FakeResponse):
+    status = 204
+
+
+class FakeScanner:
+    tool = "NETSH"
+
+    def scan(self):
+        return agent.wifi_scan.ScanOutcome("NETSH", [{
+            "mac": "a4:2b:b0:12:34:56", "ssid": "Vecino", "signalPercent": 70, "signalDbm": None, "channel": 6,
+            "band": "2.4", "radioType": "802.11n", "authentication": "WPA2", "securityLabel": "WPA2-Personal",
+            "cipher": "CCMP", "connected": False}], interface="Wi-Fi", fresh=True)
+
+
+def test_a_scan_asked_in_the_answer_to_a_report_is_run_and_delivered(tmp_path, monkeypatch):
+    monkeypatch.setenv("WIFISENSE_AGENT_KEY", LAB)
+    monkeypatch.setattr(agent, "traffic_state_path", lambda: tmp_path / "traffic.json")
+    monkeypatch.setattr(agent, "ensure_salt", lambda config: "sal")
+    monkeypatch.setattr(agent, "collect", lambda salt: {"deviceCount": 0, "openPorts": []})
+    monkeypatch.setattr(agent, "traffic_counters", lambda: {})
+    monkeypatch.setattr(agent, "send", lambda report, server, key: {"summary": "ok", "scanId": 12})
+    ran = []
+    monkeypatch.setattr(agent, "run_scan", lambda scan_id, server, key, salt: ran.append((scan_id, key, salt)))
+
+    assert agent.command_run(agent.argparse.Namespace(once=True, interval=300)) == 0
+    assert ran == [(12, LAB, "sal")]
+
+
+@pytest.mark.parametrize("body, expected", [
+    (b'{"scanId": 50}', 50), (b'{"scanId": "rm -rf /"}', None), (b'{"scanId": true}', None),
+    (b'{"scanId": -4}', None), (b'{"command": "netsh wlan export profile key=clear"}', None),
+])
+def test_the_server_can_only_ask_for_a_scan_by_its_number(body, expected):
+    def opener(request, timeout):
+        assert request.get_method() == "GET" and request.full_url == SERVER + "/api/agent/scans/next"
+        assert request.get_header("X-agent-key") == LAB
+        return FakeResponse(body)
+
+    assert agent.next_scan(SERVER, LAB, opener=opener) == expected
+
+
+def test_nothing_to_scan_is_a_204():
+    assert agent.next_scan(SERVER, LAB, opener=lambda request, timeout: EmptyResponse(b"")) is None
+
+
+def test_the_scan_is_delivered_without_any_mac():
+    sent = {}
+
+    def opener(request, timeout):
+        sent.update(url=request.full_url, body=json.loads(request.data))
+        return FakeResponse(b'{"status": "COMPLETED"}')
+
+    result = agent.run_scan(50, SERVER, LAB, "sal", opener=opener, scanner=FakeScanner())
+
+    assert sent["url"] == SERVER + "/api/agent/scans"
+    assert sent["body"]["scanId"] == 50 and sent["body"]["status"] == "COMPLETED"
+    assert sent["body"]["agentVersion"] == agent.AGENT_VERSION
+    assert "a4:2b:b0:12:34:56" not in json.dumps(sent["body"])
+    assert sent["body"]["accessPoints"][0]["bssid"] == agent.mac_fingerprint("a4:2b:b0:12:34:56", "sal")
+    assert result["accessPoints"][0]["bssidSuffix"] == "56"
+
+
+def test_a_delivery_that_fails_does_not_stop_the_agent(capsys):
+    def opener(request, timeout):
+        raise urllib.error.HTTPError(request.full_url, 409, "late", {}, io.BytesIO(
+            b'{"detail": "Ese escaneo ya termin\xc3\xb3: el resultado lleg\xc3\xb3 tarde."}'))
+
+    agent.run_scan(50, SERVER, LAB, "sal", opener=opener, scanner=FakeScanner())
+
+    assert "llegó tarde" in capsys.readouterr().out
+
+
+class FakeTime:
+    def __init__(self):
+        self.now = 0.0
+        self.slept = []
+
+    def clock(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.slept.append(seconds)
+        self.now += seconds
+
+
+def test_while_waiting_it_asks_every_30_seconds_and_runs_the_requested_scan(monkeypatch):
+    fake, answers, ran = FakeTime(), [EmptyResponse(b""), FakeResponse(b'{"scanId": 7}')], []
+    monkeypatch.setattr(agent, "run_scan", lambda scan_id, server, key, salt, opener: ran.append((scan_id, fake.now)))
+
+    def opener(request, timeout):
+        return answers.pop(0) if answers else EmptyResponse(b"")
+
+    agent.wait_watching_scans(300, SERVER, LAB, "sal", sleep=fake.sleep, clock=fake.clock, opener=opener)
+
+    assert ran == [(7, 60.0)]  # asked at 30 s (nothing) and at 60 s (the user pressed the button)
+    assert fake.now == 300 and set(fake.slept) == {30}
+
+
+def test_a_server_without_scans_is_not_asked_again_until_the_next_report():
+    fake, calls = FakeTime(), []
+
+    def opener(request, timeout):
+        calls.append(request.full_url)
+        raise urllib.error.HTTPError(request.full_url, 404, "not found", {}, None)
+
+    agent.wait_watching_scans(300, SERVER, LAB, "sal", sleep=fake.sleep, clock=fake.clock, opener=opener)
+
+    assert len(calls) == 1 and fake.now == 300
+
+
+def test_a_server_that_asks_to_slow_down_is_respected():
+    fake, calls = FakeTime(), []
+
+    def opener(request, timeout):
+        calls.append(fake.now)
+        if len(calls) == 1:
+            raise urllib.error.HTTPError(request.full_url, 429, "slow", {"Retry-After": "45"}, None)
+        return EmptyResponse(b"")
+
+    agent.wait_watching_scans(120, SERVER, LAB, "sal", sleep=fake.sleep, clock=fake.clock, opener=opener)
+
+    assert calls == [30.0, 105.0]  # after the 429 it waited 45 s more before the next question
+    assert fake.now == 120
+
+
+def test_nearby_shows_the_networks_and_saves_them_without_macs(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(agent, "load_config", lambda: {"salt": "sal"})
+    monkeypatch.setattr(agent.wifi_scan, "scanner_for", lambda: FakeScanner())
+    output = tmp_path / "cercanas.json"
+
+    assert agent.main(["nearby", "--output", str(output)]) == 0
+
+    printed = capsys.readouterr().out
+    assert "Vecino" in printed and "70 %" in printed and "a4:2b" not in printed
+    saved = json.loads(output.read_text(encoding="utf-8"))
+    assert saved["status"] == "COMPLETED" and "a4:2b:b0:12:34:56" not in output.read_text(encoding="utf-8")

@@ -10,12 +10,14 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from app import channel, evaluation, quality, security, training
+from app import channel, evaluation, nearby, quality, security, training
 from app.llm_advisor import Advisor, ClaudeAdvisor
 from app.model_service import AnomalyDetectionService
 from app.schemas import (AnalysisRequest, AnalysisResponse, EvaluationReport, ModelInfo, TrainingRequest,
                          TrainingResult)
 from app.schemas_channel import ChannelRequest, ChannelResponse
+from app.schemas_findings import FindingsResponse
+from app.schemas_nearby import NearbyRequest
 from app.schemas_quality import QualityRequest, QualityResponse
 from app.schemas_security import SecurityRequest, SecurityResponse
 
@@ -234,3 +236,11 @@ def security_assess(payload: SecurityRequest) -> SecurityResponse:
 def channel_recommend(payload: ChannelRequest) -> ChannelResponse:
     """Channel with the least interference from the neighbouring networks the agent saw, and whether to move to it."""
     return channel.recommend(payload)
+
+
+@app.post("/api/v1/nearby/analyze", response_model=FindingsResponse, response_model_by_alias=True,
+          dependencies=[Depends(verify_api_key)])
+def nearby_analyze(payload: NearbyRequest) -> FindingsResponse:
+    """Facts and inferences of one scan of the nearby Wi-Fi networks: crowded channels, weak security and networks
+    that look like the user's own."""
+    return nearby.analyze(payload)

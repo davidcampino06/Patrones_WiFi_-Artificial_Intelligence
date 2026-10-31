@@ -1,0 +1,64 @@
+{
+  "accessPoints": [
+    {
+      "ssid": "Casa de Ana",
+      "hidden": false,
+      "authentication": "WPA2",
+      "cipher": "CCMP",
+      "channel": 6,
+      "band": "2.4",
+      "signalPercent": 35,
+      "signalDbm": -78,
+      "connected": true,
+      "vendor": "Huawei"
+    },
+    {
+      "ssid": "Casa de Ana",
+      "hidden": false,
+      "authentication": "OPEN",
+      "cipher": null,
+      "channel": 6,
+      "band": "2.4",
+      "signalPercent": 60,
+      "signalDbm": -61,
+      "connected": false,
+      "vendor": "TP-Link"
+    },
+    {
+      "ssid": "Vecino 2.4",
+      "hidden": false,
+      "authentication": "WPA2",
+      "cipher": "CCMP",
+      "channel": 6,
+      "band": "2.4",
+      "signalPercent": 50,
+      "signalDbm": null,
+      "connected": false,
+      "vendor": null
+    },
+    {
+      "ssid": "Vecino B",
+      "hidden": false,
+      "authentication": "WPA2",
+      "cipher": "CCMP",
+      "channel": 6,
+      "band": "2.4",
+      "signalPercent": 44,
+      "signalDbm": null,
+      "connected": false,
+      "vendor": null
+    },
+    {
+      "ssid": null,
+      "hidden": true,
+      "authentication": "WPA2",
+      "cipher": "CCMP",
+      "channel": 1,
+      "band": "2.4",
+      "signalPercent": 20,
+      "signalDbm": null,
+      "connected": false,
+      "vendor": null
+    }
+  ]
+}
