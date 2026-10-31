@@ -281,3 +281,58 @@ def test_a_command_that_takes_too_long_or_does_not_exist():
 def test_an_answer_that_is_not_the_list_is_unreadable():
     assert scan_with({"mode=bssid": "Something unexpected"})["failureReason"] == "UNREADABLE_OUTPUT"
     assert scan_with({"mode=bssid": CommandResult(5, "Error 0x5")})["failureReason"] == "COMMAND_FAILED"
+
+
+def test_a_scanner_that_crashes_does_not_take_the_agent_down(capsys):
+    class Broken:
+        tool = "NETSH"
+
+        def scan(self):
+            raise OSError("driver")
+
+    result = wifi_scan.scan(3, "1.9.0", fingerprint, lambda mac: None, Broken())
+
+    assert result["status"] == "FAILED" and result["failureReason"] == "COMMAND_FAILED"
+    assert "driver" in capsys.readouterr().err
+
+
+def test_a_system_without_a_known_tool_says_so(monkeypatch):
+    assert wifi_scan.scanner_for("darwin") is None
+    assert isinstance(wifi_scan.scanner_for("win32"), wifi_scan.NetshScanner)
+    assert isinstance(wifi_scan.scanner_for("linux"), wifi_scan.NmcliScanner)
+    monkeypatch.setattr(wifi_scan, "scanner_for", lambda: None)
+
+    result = wifi_scan.scan(3, "1.9.0", fingerprint, lambda mac: None)
+
+    assert result["status"] == "FAILED" and result["failureReason"] == "UNSUPPORTED_OS"
+
+
+def test_the_duration_is_measured():
+    ticks = iter([10.0, 14.25])
+    result = scan_with({"mode=bssid": WINDOWS_10_EN, "interfaces": ""}, clock=lambda: next(ticks))
+
+    assert result["durationMs"] == 4250
+
+
+def test_commands_are_run_without_a_shell(monkeypatch):
+    seen = {}
+
+    def fake_run(args, **kwargs):
+        seen.update(args=args, **kwargs)
+
+        class Done:
+            returncode, stdout, stderr = 0, "Interface name : Wi-Fi".encode(), b""
+        return Done()
+
+    monkeypatch.setattr(wifi_scan.subprocess, "run", fake_run)
+    wifi_scan.run(["netsh", "wlan", "show", "networks", "mode=bssid"])
+
+    assert seen["args"] == ["netsh", "wlan", "show", "networks", "mode=bssid"]
+    assert "shell" not in seen and seen["timeout"] == wifi_scan.COMMAND_TIMEOUT
+
+
+# ------------------------------------------------------------------------------------------------------- nmcli
+
+NMCLI = (" :AA\\:BB\\:CC\\:DD\\:EE\\:01:Casa\\: 2.4:6:2437 MHz:70:WPA2\n"
+         "*:AA\\:BB\\:CC\\:DD\\:EE\\:02:Casa 5G:44:5220 MHz:91:WPA2 WPA3\n"
+         " :12\\:34\\:56\\:78\\:9A\\:BC::1:2412 MHz:20:--\n")
