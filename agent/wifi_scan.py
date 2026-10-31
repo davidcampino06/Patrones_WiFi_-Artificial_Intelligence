@@ -313,3 +313,96 @@ class NetshScanner:
         for ap in access_points:
             ap["connected"] = mine is not None and ap["mac"] == mine
         return ScanOutcome(self.tool, access_points, interface=interface, fresh=fresh)
+
+
+class NmcliScanner:
+    """Linux con NetworkManager."""
+    tool = "NMCLI"
+
+    def __init__(self, runner: Callable[[list[str]], CommandResult] = run):
+        self.runner = runner
+
+    def scan(self) -> ScanOutcome:
+        base = ["nmcli", "-t", "-f", NMCLI_FIELDS, "dev", "wifi", "list"]
+        listed, fresh = self.runner(base + ["--rescan", "yes"]), True
+        if not listed.timed_out and not listed.missing and listed.code:
+            # NetworkManager no deja volver a escanear tan seguido: se lee la última lista
+            listed, fresh = self.runner(base + ["--rescan", "no"]), False
+        if listed.timed_out:
+            return ScanOutcome(self.tool, failure="TIMEOUT", fresh=fresh)
+        if listed.missing:
+            return ScanOutcome(self.tool, failure="UNSUPPORTED_OS")
+        if listed.code:
+            lower = listed.text.lower()
+            reason = "NO_ADAPTER" if "no wi-fi device" in lower else "ADAPTER_OFF" if "disabled" in lower \
+                else "SERVICE_OFF" if "not running" in lower else "COMMAND_FAILED"
+            return ScanOutcome(self.tool, failure=reason, fresh=fresh)
+        return ScanOutcome(self.tool, parse_nmcli_scan(listed.text), fresh=fresh)
+
+
+def scanner_for(platform: str = sys.platform):
+    """La herramienta del sistema, o None si este sistema no tiene una que el agente sepa usar (macOS, por ejemplo)."""
+    if platform.startswith("win"):
+        return NetshScanner()
+    if platform.startswith("linux"):
+        return NmcliScanner()
+    return None
+
+
+# ------------------------------------------------------------------------------------------------- resultado
+
+
+def describe(ap: dict, fingerprint: Callable[[str], str], vendor: Callable[[str], Optional[str]]) -> dict:
+    """El punto de acceso como sale del computador: la MAC se cambia por su huella con sal y su último byte; el
+    fabricante solo si la MAC es la de fábrica (una MAC administrada localmente no dice quién la hizo)."""
+    mac = ap["mac"]
+    local = bool(int(mac[:2], 16) & 0b10)
+    described = {key: value for key, value in ap.items() if key != "mac"}
+    described.update(bssid=fingerprint(mac), bssidSuffix=mac[-2:].upper(), vendor=None if local else vendor(mac))
+    described["connected"] = bool(ap.get("connected"))
+    return described
+
+
+def scan(scan_id: int, agent_version: str, fingerprint: Callable[[str], str],
+         vendor: Callable[[str], Optional[str]], scanner=None, clock: Callable[[], float] = time.monotonic) -> dict:
+    """Escanea y arma lo que se envía al servidor para el escaneo ``scan_id``. Nunca lanza excepciones: cualquier
+    problema se devuelve como un escaneo fallido con su motivo."""
+    started = clock()
+    scanner = scanner if scanner is not None else scanner_for()
+    result: dict = {"scanId": scan_id, "agentVersion": agent_version}
+    if scanner is None:
+        outcome = ScanOutcome(None, failure="UNSUPPORTED_OS")
+    else:
+        try:
+            outcome = scanner.scan()
+        except Exception as error:  # un adaptador raro no debe tumbar el agente
+            print(f"  aviso: el escaneo falló: {error}", file=sys.stderr)
+            outcome = ScanOutcome(scanner.tool, failure="COMMAND_FAILED")
+    seen: dict[str, dict] = {}
+    for ap in outcome.access_points:
+        previous = seen.get(ap["mac"])
+        if previous is None or (ap.get("signalPercent") or -1) > (previous.get("signalPercent") or -1):
+            seen[ap["mac"]] = ap
+    strongest = sorted(seen.values(), key=lambda ap: ap.get("signalPercent") or -1, reverse=True)
+    result.update({
+        "status": "FAILED" if outcome.failure else "COMPLETED",
+        "failureReason": outcome.failure if outcome.failure in FAILURES else None,
+        "interfaceName": (outcome.interface or "")[:64] or None,
+        "scanTool": outcome.tool,
+        "fresh": outcome.fresh,
+        "durationMs": max(int((clock() - started) * 1000), 0),
+        "accessPoints": [] if outcome.failure else
+        [describe(ap, fingerprint, vendor) for ap in strongest[:MAX_ACCESS_POINTS]],
+    })
+    return {key: value for key, value in result.items() if value is not None}
+
+
+def summary(result: dict) -> str:
+    """Una línea para la consola, sin ninguna MAC."""
+    if result.get("status") == "FAILED":
+        return f"Escaneo de redes cercanas: no se pudo ({result.get('failureReason')})."
+    access_points = result.get("accessPoints") or []
+    names = {ap.get("ssid") for ap in access_points if ap.get("ssid")}
+    hidden = sum(1 for ap in access_points if not ap.get("ssid"))
+    text = f"Escaneo de redes cercanas: {len(names) + hidden} redes, {len(access_points)} puntos de acceso"
+    return text + ("." if result.get("fresh") else " (lista que ya tenía el sistema).")
