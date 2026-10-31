@@ -233,3 +233,17 @@ def test_a_bssid_repeated_by_the_system_is_sent_once():
 
     assert len(result["accessPoints"]) == 3
     assert result["accessPoints"][0]["signalPercent"] == 88
+
+
+def test_no_networks_in_range_is_a_completed_scan():
+    result = scan_with({"mode=bssid": "Interface name : Wi-Fi\nThere are 0 networks currently visible.\n",
+                        "interfaces": INTERFACES_CONNECTED})
+
+    assert result["status"] == "COMPLETED" and result["accessPoints"] == []
+
+
+def test_the_list_windows_already_had_is_marked_as_not_fresh():
+    result = scan_with({"mode=bssid": WINDOWS_10_EN, "interfaces": ""}, fresh=False)
+
+    assert result["fresh"] is False
+    assert "lista que ya tenía el sistema" in wifi_scan.summary(result)
