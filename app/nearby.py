@@ -142,3 +142,11 @@ def _lookalikes(own: AccessPoint | None, others: list[AccessPoint]) -> list[Infe
             if len(found) == 3:
                 break
     return found
+
+
+def _uncertainty(count: int) -> str:
+    text = ("Un escaneo muestra lo que la antena de este computador vio en ese momento y lugar: puede no ver todas las "
+            "redes y la señal cambia con la distancia y las paredes.")
+    if count < 3:
+        text += " Con tan pocas redes vistas, cualquier comparación es poco segura."
+    return text + " Las inferencias son posibles explicaciones, no certezas."
