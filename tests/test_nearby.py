@@ -36,3 +36,19 @@ def test_an_unprotected_own_network_is_the_only_critical_thing_and_it_is_a_fact(
     own = answer.facts[1]
     assert own.code == "OWN_NETWORK_UNPROTECTED" and own.severity == Level.CRITICAL
     assert all(i.severity != Level.CRITICAL for i in answer.inferences)
+
+
+def test_a_crowded_channel_is_counted_and_a_calmer_one_is_inferred():
+    points = [ap("Casa", connected=True)] + [ap(f"Vecino {i}") for i in range(4)] + [ap("Otro", channel=1)]
+    answer = nearby.analyze(scan(points))
+
+    crowded = next(f for f in answer.facts if f.code == "CROWDED_CHANNEL")
+    assert "4 redes vecinas" in crowded.evidence
+    better = next(i for i in answer.inferences if i.code == "BETTER_CHANNEL")
+    assert better.confidence == 0.7 and "11" in better.title and better.recommendation
+
+
+def test_a_repeater_with_the_same_name_and_maker_is_not_a_lookalike():
+    answer = nearby.analyze(scan([ap("Casa", connected=True, vendor="TP-Link"), ap("Casa", vendor="TP-Link")]))
+
+    assert "LOOKALIKE_NETWORK" not in codes(answer.inferences)
