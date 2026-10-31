@@ -138,3 +138,23 @@ def test_several_networks_with_several_access_points_in_english():
     assert casa["radioType"] == "802.11ac"
     assert access_points[1]["band"] == "2.4"  # Windows 10 does not say the band: it follows from channel 6
     assert access_points[3]["authentication"] == "OPEN" and access_points[3]["cipher"] == "NONE"
+
+
+def test_spanish_windows_11_with_band_load_and_special_characters():
+    interface, access_points = wifi_scan.parse_netsh_scan(WINDOWS_11_ES)
+
+    assert interface == "Wi-Fi 2"
+    vecino, biblioteca = access_points
+    assert vecino["ssid"] == 'Café ☕ "Vecino" <script>'  # kept as it is: the page escapes it
+    assert vecino["channel"] == 37  # not the 12 of "Utilización del canal"
+    assert vecino["band"] == "6" and vecino["authentication"] == "WPA3"
+    assert biblioteca["band"] == "2.4" and biblioteca["authentication"] == "WPA2"
+    assert biblioteca["securityLabel"] == "WPA2-Enterprise"
+
+
+def test_a_console_that_damaged_the_accents_is_still_read():
+    damaged = WINDOWS_11_ES.replace("Señal", "Se¤al").replace("Autenticación", "Autenticaci¢n")
+    _, access_points = wifi_scan.parse_netsh_scan(damaged)
+
+    assert access_points[0]["signalPercent"] == 72
+    assert access_points[0]["authentication"] == "WPA3"
