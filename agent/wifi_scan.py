@@ -164,3 +164,41 @@ def parse_netsh_scan(text: str) -> tuple[Optional[str], list[dict]]:
         elif current is not None and field in ("signal", "radio", "band", "channel"):
             current[field] = value or None
     return interface, [access_point(ap) for ap in found]
+
+
+def access_point(raw: dict) -> dict:
+    """Un punto de acceso con los nombres y unidades que espera el servidor. Lo que falte queda en None."""
+    channel = first_number(raw.get("channel") or "")
+    channel = int(channel) if channel and 1 <= channel <= 233 else None
+    signal = first_number(raw.get("signal") or "")
+    auth = raw.get("authentication")
+    return {
+        "mac": raw["mac"],
+        "ssid": raw.get("ssid"),
+        "signalPercent": int(signal) if signal is not None and 0 <= signal <= 100 else None,
+        "signalDbm": None,  # netsh solo da el porcentaje: no se calcula
+        "channel": channel,
+        "band": band_of(raw.get("band") or "", channel) if raw.get("band") or channel else None,
+        "radioType": (raw.get("radio") or "")[:20] or None,
+        "authentication": authentication_of(auth or "", raw.get("cipher") or "") if auth else "UNKNOWN",
+        "securityLabel": (auth or "")[:40] or None,
+        "cipher": cipher_of(raw.get("cipher") or "") if raw.get("cipher") else None,
+    }
+
+
+def connected_bssid(interfaces_text: str) -> Optional[str]:
+    """La MAC del punto de acceso al que está conectado este computador, según 'netsh wlan show interfaces'
+    ('BSSID' en Windows 10 y 'AP BSSID' en Windows 11), o None si no está conectado."""
+    state, bssid = None, None
+    for key, value in key_values(interfaces_text or ""):
+        normalized = normalize_key(key)
+        if normalized in ("name", "nombre"):
+            if state and bssid:
+                break
+            state, bssid = None, None
+        elif normalized in ("state", "estado"):
+            state = normalize_key(value).startswith(("connected", "conectado"))
+        elif normalized in ("bssid", "apbssid"):
+            mac = value.strip().lower().replace("-", ":")
+            bssid = mac if MAC.match(mac) else None
+    return bssid if state and bssid else None
