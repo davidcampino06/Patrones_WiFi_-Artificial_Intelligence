@@ -1,0 +1,53 @@
+{
+  "facts": [
+    {
+      "code": "NETWORKS_SEEN",
+      "severity": "INFO",
+      "title": "Redes cercanas",
+      "evidence": "3 redes con nombre y 5 puntos de acceso en total; 1 oculta.",
+      "recommendation": null
+    },
+    {
+      "code": "OWN_NETWORK",
+      "severity": "INFO",
+      "title": "Tu red",
+      "evidence": "«Casa de Ana» usa WPA2 en el canal 6, señal 35 %.",
+      "recommendation": null
+    },
+    {
+      "code": "OPEN_NETWORKS_NEARBY",
+      "severity": "INFO",
+      "title": "Redes abiertas cerca",
+      "evidence": "1 punto de acceso cercano no pide contraseña.",
+      "recommendation": "No te conectes a redes abiertas para nada privado: lo que envíes sin cifrar lo puede ver cualquiera cerca."
+    }
+  ],
+  "inferences": [
+    {
+      "code": "BETTER_CHANNEL",
+      "severity": "INFO",
+      "title": "El canal 11 tendría menos interferencia",
+      "evidence": "Tu router usa el canal 6, donde hay 2 redes vecinas. En el canal 11 no hay ninguna.",
+      "recommendation": "Entra a la configuración del router (suele ser 192.168.0.1 o 192.168.1.1), busca Wi-Fi 2.4 GHz → Canal, cambia «Automático» por 11 y guarda. Tus equipos se reconectan solos en unos segundos.",
+      "confidence": 0.7
+    },
+    {
+      "code": "WEAK_OWN_SIGNAL",
+      "severity": "WARNING",
+      "title": "Tu Wi-Fi llega débil a este computador",
+      "evidence": "La señal de tu red es 35 % en el lugar del computador del agente.",
+      "recommendation": "Acerca el router o pon un repetidor; las paredes y los electrodomésticos la debilitan. Mide de nuevo desde otro lugar para confirmarlo.",
+      "confidence": 0.6
+    },
+    {
+      "code": "LOOKALIKE_NETWORK",
+      "severity": "WARNING",
+      "title": "Una red cercana se parece a la tuya",
+      "evidence": "«Casa de Ana» tiene el mismo nombre que tu red pero no pide contraseña y es de otro fabricante.",
+      "recommendation": "Si no es un repetidor tuyo, no te conectes a ella y revisa que tus equipos se conecten a tu red (no a la parecida). Esto solo no prueba que alguien quiera engañarte.",
+      "confidence": 0.5
+    }
+  ],
+  "uncertainty": "Un escaneo muestra lo que la antena de este computador vio en ese momento y lugar: puede no ver todas las redes y la señal cambia con la distancia y las paredes. Las inferencias son posibles explicaciones, no certezas.",
+  "modelVersion": "nearby-1.0"
+}
