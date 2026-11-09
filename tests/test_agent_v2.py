@@ -1,9 +1,12 @@
-"""Agente: la máscara real de la red, el origen de cada nombre y los nombres que da el router."""
+"""Agente 2.0.0: la máscara real de la red, el origen de cada nombre, las capacidades en el reporte y las capturas que
+pide el servidor (solo por su número)."""
 import io
 import json
+import urllib.error
 
 import pytest
 
+from agent import capture_backends as backends
 from agent import wifisense_agent as agent
 
 SERVER = "https://wifisense.example.com"
@@ -134,3 +137,50 @@ def test_router_names_are_asked_to_the_router_and_a_silent_router_gives_none():
 
     assert agent.router_names("192.168.1.1", ["192.168.1.23"], lambda gw: Broken()) == {}
     assert agent.router_names(None, ["192.168.1.23"]) == {}
+
+
+@pytest.mark.parametrize("answer, expected", [
+    ({"captureId": 40, "maxSeconds": 30, "maxPackets": 5000, "maxBytes": 20971520},
+     {"captureId": 40, "maxSeconds": 30, "maxPackets": 5000, "maxBytes": 20971520}),
+    ({"captureId": 40, "command": "pktmon start --pkt-size 0", "maxSeconds": "60"}, {"captureId": 40}),
+    ({"captureId": "40"}, None), ({"captureId": False}, None), ({"captureId": -1}, None), ([], None), (None, None),
+])
+def test_the_server_can_only_ask_for_a_capture_by_its_number_and_limits(answer, expected):
+    assert agent.capture_task_of(answer) == expected
+
+
+def test_the_capture_is_run_with_the_sensor_key_and_only_counts_are_posted(monkeypatch, tmp_path):
+    calls = []
+
+    def opener(request, timeout):
+        calls.append((request.get_method(), request.full_url, request.get_header("X-agent-key"),
+                      json.loads(request.data) if request.data else None))
+        if request.full_url.endswith("/state"):
+            return Response(b'{"captureId": 40, "stop": false}')
+        return Response(b'{"id": 40, "status": "COMPLETED"}')
+
+    class Tool:
+        code = "PACKET_SOCKET"
+
+        def check(self, own_ip=None):
+            return backends.Check(True, True, interfaces=1)
+
+        def capture(self, session):
+            from tests import capture_samples as samples
+            from agent import packet_parser
+            session.stats.add(packet_parser.parse(samples.https_out(), 1), 10.0)
+            return backends.Run("wlan0")
+
+    monkeypatch.setattr(agent, "local_ip", lambda: "192.168.1.2")
+    monkeypatch.setattr(agent, "network_prefix", lambda ip: 24)
+    monkeypatch.setattr(agent.traffic_capture, "log_path", lambda: tmp_path / "capturas.log")
+    monkeypatch.setattr(agent.traffic_capture.capture_files, "captures_dir",
+                        lambda base=None: (tmp_path / "capturas").mkdir(exist_ok=True) or tmp_path / "capturas")
+
+    result = agent.run_capture_task({"captureId": 40, "maxSeconds": 5}, SERVER, SENSOR, {"captureConsent": True},
+                                    opener=opener, backends=[Tool()])
+
+    posted = [c for c in calls if c[0] == "POST"]
+    assert posted[0][1] == SERVER + "/api/agent/captures" and posted[0][2] == SENSOR
+    assert posted[0][3]["captureId"] == 40 and posted[0][3]["packetCount"] == 1
+    assert result["status"] == "COMPLETED" and "192.168" not in json.dumps(posted[0][3])
