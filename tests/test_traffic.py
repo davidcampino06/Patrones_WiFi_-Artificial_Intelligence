@@ -45,3 +45,49 @@ def test_an_unknown_drop_count_is_said_in_the_uncertainty_not_invented_as_zero()
 
     assert "TOOL_DROPPED" not in codes(answer.facts)
     assert "no informó si perdió paquetes" in answer.uncertainty
+
+
+def test_a_burst_is_an_inference_with_its_seconds_and_a_confidence():
+    intervals = [{"second": s, "packets": 40, "bytes": 28000} for s in range(30)]
+    intervals[12] = {"second": 12, "packets": 400, "bytes": 280000}
+    answer = traffic.analyze(request(packets=1560, intervals=intervals))
+
+    burst = next(i for i in answer.inferences if i.code == "TRAFFIC_BURST")
+    assert "segundos 12" in burst.evidence and "400" in burst.evidence
+    assert 0.4 <= burst.confidence <= 0.85
+    assert burst.severity == Level.WARNING
+    assert "TRAFFIC_BURST" not in codes(answer.facts)
+
+
+def test_a_steady_capture_has_no_burst_even_with_some_noise():
+    intervals = [{"second": s, "packets": 40 + (s % 5), "bytes": 28000} for s in range(30)]
+
+    assert "TRAFFIC_BURST" not in codes(traffic.analyze(request(intervals=intervals)).inferences)
+
+
+def test_much_arp_is_a_reason_to_look_never_an_accusation():
+    answer = traffic.analyze(request(protocols=[{"protocol": "ARP", "packets": 600, "bytes": 36000},
+                                                {"protocol": "HTTPS", "packets": 600, "bytes": 800000}]))
+
+    arp = next(i for i in answer.inferences if i.code == "ARP_ACTIVITY")
+    assert arp.confidence == 0.6
+    assert "no basta para decir que alguno sea malicioso" in arp.recommendation
+    for item in answer.facts + answer.inferences:
+        assert "malicioso" not in item.title.lower()
+
+
+@pytest.mark.parametrize("protocols, code", [
+    ([{"protocol": "MDNS", "packets": 300, "bytes": 1}, {"protocol": "SSDP", "packets": 200, "bytes": 1},
+      {"protocol": "HTTPS", "packets": 700, "bytes": 1}], "DISCOVERY_CHATTER"),
+    ([{"protocol": "DNS", "packets": 500, "bytes": 1}, {"protocol": "HTTPS", "packets": 700, "bytes": 1}], "DNS_HEAVY"),
+    ([{"protocol": "HTTP", "packets": 300, "bytes": 1}, {"protocol": "HTTPS", "packets": 900, "bytes": 1}],
+     "UNENCRYPTED_WEB"),
+])
+def test_patterns_of_protocols_are_inferences(protocols, code):
+    assert code in codes(traffic.analyze(request(protocols=protocols)).inferences)
+
+
+def test_many_remote_hosts_in_little_time_is_a_low_confidence_inference():
+    inference = next(i for i in traffic.analyze(request(remoteHosts=400)).inferences if i.code == "MANY_REMOTE_HOSTS")
+
+    assert inference.confidence == 0.4
