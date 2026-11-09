@@ -119,3 +119,72 @@ def _burst(request: TrafficRequest) -> Inference | None:
                               f"fue {median:.0f} por segundo (segundos {_list(bursts)}).",
                      recommendation="Repite la captura en otro momento y compara: una descarga o una actualización "
                                     "explican una ráfaga; si se repite sin motivo, revisa los equipos conectados.")
+
+
+def _patterns(request: TrafficRequest, by_protocol: dict[str, int]) -> list[Inference]:
+    packets, found = request.packets, []
+    arp = by_protocol.get("ARP", 0)
+    if arp >= MIN_PACKETS_FOR_PATTERNS and arp / packets >= 0.2:
+        found.append(Inference(
+            code="ARP_ACTIVITY", severity=Level.WARNING, confidence=0.6 if arp / packets >= 0.4 else 0.45,
+            title="Muchas preguntas ARP",
+            evidence=f"{arp} de {packets} paquetes ({_pct(arp, packets)}) fueron ARP: equipos preguntando quién "
+                     "tiene cada dirección de la red.",
+            recommendation="Puede ser un equipo que recorre la red (un inventario, un antivirus, un escaneo) o uno mal "
+                           "configurado. Revisa en Dispositivos si apareció un equipo nuevo; esto solo no basta para "
+                           "decir que alguno sea malicioso."))
+    discovery = sum(by_protocol.get(p, 0) for p in DISCOVERY)
+    if discovery >= MIN_PACKETS_FOR_PATTERNS and discovery / packets >= 0.3:
+        found.append(Inference(
+            code="DISCOVERY_CHATTER", severity=Level.INFO, confidence=0.6,
+            title="Mucho tráfico de descubrimiento",
+            evidence=f"{discovery} paquetes ({_pct(discovery, packets)}) fueron mDNS, SSDP, LLMNR o NetBIOS.",
+            recommendation="Suelen ser televisores, impresoras o parlantes anunciándose. Si molesta, desactiva el "
+                           "descubrimiento en los equipos que no lo necesitan."))
+    dns = by_protocol.get("DNS", 0)
+    if dns >= MIN_PACKETS_FOR_PATTERNS and dns / packets >= 0.25:
+        found.append(Inference(
+            code="DNS_HEAVY", severity=Level.INFO, confidence=0.45, title="Muchas consultas de nombres",
+            evidence=f"{dns} paquetes ({_pct(dns, packets)}) fueron consultas DNS.",
+            recommendation="Puede ser una aplicación que consulta sin parar o un DNS que no responde y obliga a "
+                           "repetir. Prueba con otro servidor DNS y compara."))
+    http = by_protocol.get("HTTP", 0)
+    if http >= 20 and http / packets >= 0.1:
+        found.append(Inference(
+            code="UNENCRYPTED_WEB", severity=Level.WARNING, confidence=0.6, title="Parte de la web va sin cifrar",
+            evidence=f"{http} paquetes ({_pct(http, packets)}) usaron el puerto 80 (HTTP), que no va cifrado.",
+            recommendation="Usa sitios con HTTPS y actualiza los equipos que aún hablan HTTP (cámaras, impresoras)."))
+    if request.remote_hosts and request.remote_hosts >= 150 and request.duration_seconds <= 120:
+        found.append(Inference(
+            code="MANY_REMOTE_HOSTS", severity=Level.WARNING, confidence=0.4, title="Muchos destinos en poco tiempo",
+            evidence=f"{request.remote_hosts} direcciones de fuera de la red en {request.duration_seconds:.0f} s.",
+            recommendation="Puede ser un programa de descargas entre usuarios (P2P), una actualización distribuida o "
+                           "un escaneo. Revisa qué programas corren en el computador del sensor."))
+    return found
+
+
+def _uncertainty(request: TrafficRequest) -> str:
+    notes = ["La captura ve el tráfico del computador del sensor y la difusión de la red, no lo que los demás equipos "
+             "envían a Internet."]
+    if request.packets < SMALL_SAMPLE_PACKETS or request.duration_seconds < SMALL_SAMPLE_SECONDS:
+        notes.append("Es una muestra pequeña: las inferencias son poco seguras.")
+    if request.dropped_by_tool is None:
+        notes.append("La herramienta no informó si perdió paquetes.")
+    notes.append("Las inferencias son posibles explicaciones, no certezas: confírmalas antes de actuar.")
+    return " ".join(notes)
+
+
+def _pct(part: int, whole: int) -> str:
+    if not whole:
+        return "0 %"
+    share = 100 * part / whole
+    return "menos de 1 %" if 0 < share < 1 else f"{share:.0f} %"
+
+
+def _size(size: int) -> str:
+    return f"{size / 1_048_576:.1f} MB" if size >= 1_048_576 else f"{size / 1024:.0f} KB"
+
+
+def _list(seconds: list[int]) -> str:
+    shown = ", ".join(str(s) for s in seconds[:5])
+    return shown + ("…" if len(seconds) > 5 else "")
