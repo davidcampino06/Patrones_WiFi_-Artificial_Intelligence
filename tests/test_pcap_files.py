@@ -26,3 +26,21 @@ def test_nanosecond_pcap_keeps_the_fraction():
     frames, _ = frames_of(samples.pcap([(3.000000250, samples.mdns())], nanoseconds=True))
 
     assert frames[0].timestamp == pytest.approx(3.00000025)
+
+
+def test_a_pcapng_file_uses_the_time_resolution_of_its_interface_and_the_drops_the_tool_reported():
+    frames, summary = frames_of(samples.pcapng([(100.0, samples.https_out()), (100.75, samples.https_in())],
+                                               tsresol=9, dropped=17))
+
+    assert [f.timestamp for f in frames] == pytest.approx([100.0, 100.75])
+    assert summary.dropped_by_tool == 17
+    assert not summary.damaged
+
+
+def test_a_big_endian_pcapng_and_a_simple_packet_block_are_read():
+    frames, _ = frames_of(samples.pcapng([(1.0, samples.arp_request()), (2.0, samples.dns_query())], order=">",
+                                         simple_first=True))
+
+    assert len(frames) == 2
+    assert frames[0].data == samples.arp_request()
+    assert frames[1].timestamp == pytest.approx(2.0)
