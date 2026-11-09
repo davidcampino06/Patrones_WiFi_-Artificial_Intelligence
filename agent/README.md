@@ -127,6 +127,17 @@ contenido de un paquete.
   como administrador, si la tarjeta declara modo monitor según `netsh wlan show wirelesscapabilities`) va en cada
   reporte; así la página explica antes de pedir por qué no se puede capturar.
 
+Pruebas manuales en un computador real (no envían nada):
+
+```cmd
+WiFiSenseAgente.exe capture-check --output capacidades.json
+WiFiSenseAgente.exe capture-local --seconds 10 --output captura.json
+```
+
+`capture-check` dice qué herramienta se puede usar y por qué no las demás; `capture-local` hace una captura de verdad
+con la herramienta disponible y guarda los conteos que se enviarían. Para probar pktmon, abre la consola **como
+administrador**. GitHub Actions corre estas dos pruebas en Windows real con cada cambio del agente.
+
 **Nombres de los equipos: de dónde salen (2.0.0).** Además de lo que el equipo anuncia (mDNS, UPnP, NetBIOS, DHCP), el
 agente le pregunta el nombre de cada IP **directamente al DNS del router** (`router_sources.py`): muchos routers
 (dnsmasq: TP-Link, ASUS, OpenWrt y varios del operador) responden el nombre que cada equipo dio al pedir dirección.
@@ -239,6 +250,7 @@ misma certeza:
 | Tipo (celular, TV, impresora…) | **Suposición** | Sale del nombre, los servicios y los puertos que ofrece; la página lo muestra como «Parece…» |
 | Nombre que da el router (2.0.0) | **Lo que el router guardó** | El DNS del router repite el nombre que el equipo dio al pedir dirección; cuando coincide con el que anuncia el equipo, la página lo muestra como confirmado |
 | Lista oficial de clientes del router | **No disponible** | Solo el router la tiene, y leerla necesita su clave y una integración por modelo que WiFiSense no tiene |
+| Capturas técnicas (2.0.0) | **Medido, solo de este computador** | Cuenta cabeceras del tráfico del computador del sensor y de la difusión de la red; no ve el tráfico de los demás equipos hacia Internet |
 
 Por eso existe el asistente **«¿Cuál es este equipo?»**: confirmar un equipo apagando su Wi-Fi es más fiable que
 cualquier suposición. WiFiSense nunca expulsa, bloquea ni interfiere equipos: para sacar a alguien de la red hay que
