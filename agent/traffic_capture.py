@@ -190,3 +190,22 @@ def _deliver(deliver: Callable[[dict], None], result: dict, log: Callable[[str],
         log(f"  No se entregó la captura: {error}")
     append_log(result)
     return result
+
+
+def log_path() -> Path:
+    base = os.environ.get("APPDATA") if os.name == "nt" else os.environ.get("XDG_CONFIG_HOME")
+    return Path(base or Path.home() / ".config") / "WiFiSense" / "capturas.log"
+
+
+def append_log(result: dict, path: Optional[Path] = None) -> None:
+    """Una línea por captura en el registro local: cuándo, cuál, con qué, cómo terminó. Sin direcciones ni secretos."""
+    line = {key: result.get(key) for key in ("captureId", "status", "failureReason", "stopReason", "captureTool",
+                                             "packetCount", "byteCount", "durationMs")}
+    line["at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+    path = path or log_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as file:
+            file.write(json.dumps({k: v for k, v in line.items() if v is not None}, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
