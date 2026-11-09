@@ -399,3 +399,89 @@ class PktmonBackend:
             raise CaptureFailed("CAPTURE_ERROR", f"{' '.join(args[:2])} no respondió a tiempo.")
         except OSError as error:
             raise CaptureFailed("CAPTURE_ERROR", f"No se pudo ejecutar pktmon: {error}")
+
+
+# ------------------------------------------------------------------------------------------ sockets del sistema
+
+class _SocketBackend:
+    """Base de las capturas con un socket del sistema: leer hasta que haya que parar, con un tiempo de espera corto
+    para revisar los límites aunque no lleguen paquetes."""
+    code = ""
+    link_type = packet_parser.LINK_RAW
+
+    def __init__(self, opener: Optional[Callable[[Optional[str]], tuple[socket.socket, str]]] = None):
+        self.opener = opener or self.open_socket
+
+    def open_socket(self, own_ip: Optional[str]) -> tuple[socket.socket, str]:  # pragma: no cover - por sistema
+        raise NotImplementedError
+
+    def close_socket(self, sock: socket.socket) -> None:
+        sock.close()
+
+    def frame(self, data: bytes, address) -> Optional[bytes]:
+        return data
+
+    def check(self, own_ip: Optional[str] = None) -> Check:
+        try:
+            sock, _name = self.opener(own_ip)
+        except PermissionError as error:
+            return Check(False, True, "PERMISSION_DENIED", str(error))
+        except CaptureFailed as failure:
+            return Check(False, failure.reason != "UNSUPPORTED_OS", failure.reason, failure.detail)
+        except OSError as error:
+            return Check(False, True, _failure_of(str(error)), str(error))
+        self.close_socket(sock)
+        return Check(True, True, interfaces=1)
+
+    def capture(self, session: Session) -> Run:
+        try:
+            sock, name = self.opener(session.own_ip)
+        except PermissionError as error:
+            raise CaptureFailed("PERMISSION_DENIED", str(error))
+        except OSError as error:
+            raise CaptureFailed(_failure_of(str(error)), str(error))
+        try:
+            sock.settimeout(READ_TIMEOUT_MS / 1000)
+            started = session.clock()
+            while not session.over(started):
+                try:
+                    data, address = sock.recvfrom(65535)
+                except socket.timeout:
+                    continue
+                except OSError as error:
+                    raise CaptureFailed("CAPTURE_ERROR", str(error))
+                kept = self.frame(data, address)
+                if kept is not None:
+                    session.stats.add(packet_parser.parse(kept[:SNAPLEN], self.link_type, len(data)), session.wall())
+            return Run(name)  # el sistema no informa paquetes perdidos por un socket: queda desconocido
+        finally:
+            self.close_socket(sock)
+
+
+class RawSocketBackend(_SocketBackend):
+    """Socket sin procesar de Windows (SIO_RCVALL): los paquetes IP de este computador, sin cabecera Ethernet ni ARP.
+    Necesita administrador."""
+    code = "RAW_SOCKET"
+    link_type = packet_parser.LINK_RAW
+
+    def open_socket(self, own_ip: Optional[str]) -> tuple[socket.socket, str]:  # pragma: no cover - solo Windows
+        if not IS_WINDOWS:
+            raise CaptureFailed("UNSUPPORTED_OS", "El socket sin procesar de captura es de Windows.")
+        if not own_ip:
+            raise CaptureFailed("NO_INTERFACE", "Este computador no tiene una IP en la red.")
+        sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_IP)
+        try:
+            sock.bind((own_ip, 0))
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
+            sock.ioctl(socket.SIO_RCVALL, socket.RCVALL_ON)  # type: ignore[attr-defined]
+        except OSError:
+            sock.close()
+            raise
+        return sock, "Socket sin procesar (IP)"  # nunca la IP: el nombre de la interfaz llega al servidor
+
+    def close_socket(self, sock: socket.socket) -> None:  # pragma: no cover - solo Windows
+        try:
+            sock.ioctl(socket.SIO_RCVALL, socket.RCVALL_OFF)  # type: ignore[attr-defined]
+        except (OSError, AttributeError):
+            pass
+        sock.close()
