@@ -1,0 +1,35 @@
+{
+  "facts": [
+    {
+      "code": "TRAFFIC_VOLUME",
+      "severity": "INFO",
+      "title": "Volumen capturado",
+      "evidence": "1200 paquetes y 820 KB en 30 s (39.7 paquetes por segundo).",
+      "recommendation": null
+    },
+    {
+      "code": "TOP_PROTOCOLS",
+      "severity": "INFO",
+      "title": "Protocolos más usados",
+      "evidence": "HTTPS 75 %, DNS 10 %, MDNS 7 %.",
+      "recommendation": null
+    },
+    {
+      "code": "CONNECTION_LOSS",
+      "severity": "INFO",
+      "title": "Pérdida en la última prueba de conexión",
+      "evidence": "La última prueba de conexión de esta red midió 0.4 % de pérdida. Es otra medida: no sale de esta captura.",
+      "recommendation": null
+    },
+    {
+      "code": "MALFORMED_PACKETS",
+      "severity": "INFO",
+      "title": "Paquetes ilegibles",
+      "evidence": "2 paquetes (menos de 1 %) tenían cabeceras cortadas o imposibles.",
+      "recommendation": null
+    }
+  ],
+  "inferences": [],
+  "uncertainty": "La captura ve el tráfico del computador del sensor y la difusión de la red, no lo que los demás equipos envían a Internet. Las inferencias son posibles explicaciones, no certezas: confírmalas antes de actuar.",
+  "modelVersion": "traffic-1.0"
+}

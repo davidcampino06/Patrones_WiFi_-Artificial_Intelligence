@@ -10,7 +10,7 @@ import pytest
 CONTRACTS = Path(__file__).parent / "contracts"
 ENDPOINTS = [("anomalies", "/api/v1/anomalies/detect"), ("quality", "/api/v1/quality/score"),
              ("security", "/api/v1/security/assess"), ("channel", "/api/v1/channel/recommend"),
-             ("nearby", "/api/v1/nearby/analyze")]
+             ("traffic", "/api/v1/traffic/analyze"), ("nearby", "/api/v1/nearby/analyze")]
 
 
 def load(name: str):
