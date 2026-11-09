@@ -44,3 +44,32 @@ def test_a_big_endian_pcapng_and_a_simple_packet_block_are_read():
     assert len(frames) == 2
     assert frames[0].data == samples.arp_request()
     assert frames[1].timestamp == pytest.approx(2.0)
+
+
+def test_a_truncated_file_stops_quietly_and_says_it_was_damaged():
+    raw = samples.pcapng([(1.0, samples.arp_request()), (2.0, samples.dns_query())])
+    frames, summary = frames_of(raw[:-10])
+
+    assert len(frames) == 1
+    assert summary.damaged
+
+
+def test_a_truncated_pcap_record_is_not_invented():
+    raw = samples.pcap([(1.0, samples.arp_request())])
+    frames, summary = frames_of(raw[:-5])
+
+    assert frames == [] and summary.damaged
+
+
+@pytest.mark.parametrize("raw", [b"", b"PK\x03\x04no es una captura"])
+def test_something_that_is_not_a_capture_is_an_error(raw):
+    with pytest.raises(pcap_files.CaptureFileError):
+        frames_of(raw)
+
+
+def test_a_block_that_claims_to_be_huge_is_treated_as_damage_not_read():
+    raw = samples.pcapng([(1.0, samples.arp_request())])
+    broken = raw + (6).to_bytes(4, "little") + (1 << 30).to_bytes(4, "little")
+    frames, summary = frames_of(broken)
+
+    assert len(frames) == 1 and summary.damaged
