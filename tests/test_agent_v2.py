@@ -221,3 +221,86 @@ def test_a_home_agent_never_asks_for_captures(monkeypatch):
                               clock=lambda: clock[0], opener=opener)
 
     assert asked and all(url.endswith("/scans/next") for url in asked)
+
+
+def test_the_capabilities_are_checked_at_most_every_ten_minutes_or_when_the_consent_changes(monkeypatch):
+    checks = []
+    monkeypatch.setattr(agent, "local_ip", lambda: "192.168.1.2")
+    monkeypatch.setattr(agent, "_capabilities_cache", {"at": -10_000, "value": None, "consent": None})
+
+    monkeypatch.setattr(agent, "monitor_mode_hint", lambda: None)
+
+    def fake(config, own_ip, backends=None, monitor_hint=None):
+        checks.append(config.get("captureConsent"))
+        return {"captureConsent": bool(config.get("captureConsent"))}
+    monkeypatch.setattr(agent.traffic_capture, "capabilities", fake)
+
+    agent.agent_capabilities({}, now=0)
+    agent.agent_capabilities({}, now=300)
+    agent.agent_capabilities({"captureConsent": True}, now=301)
+    agent.agent_capabilities({"captureConsent": True}, now=1000)
+
+    assert checks == [None, True, True]
+
+
+def test_capture_consent_is_saved_only_in_this_computers_configuration(monkeypatch, tmp_path, capsys):
+    path = tmp_path / "agent.json"
+    path.write_text(json.dumps({"server": SERVER, "salt": "sal"}))
+    monkeypatch.setattr(agent, "config_path", lambda: path)
+
+    assert agent.main(["capture-consent", "on"]) == 0
+    assert json.loads(path.read_text())["captureConsent"] is True and "PERMITIDAS" in capsys.readouterr().out
+    assert agent.main(["capture-consent", "off"]) == 0
+    assert json.loads(path.read_text())["captureConsent"] is False
+    assert json.loads(path.read_text())["salt"] == "sal"
+
+
+def test_the_report_carries_the_capabilities_and_a_capture_asked_in_the_answer_is_run(monkeypatch, tmp_path):
+    monkeypatch.setenv("WIFISENSE_AGENT_KEY", SENSOR)
+    monkeypatch.setattr(agent, "traffic_state_path", lambda: tmp_path / "traffic.json")
+    monkeypatch.setattr(agent, "config_path", lambda: tmp_path / "agent.json")
+    monkeypatch.setattr(agent, "ensure_salt", lambda config: "sal")
+    monkeypatch.setattr(agent, "collect", lambda salt: {"deviceCount": 0, "openPorts": []})
+    monkeypatch.setattr(agent, "traffic_counters", lambda: {})
+    monkeypatch.setattr(agent, "agent_capabilities", lambda config: {"captureConsent": False, "npcap": True})
+    sent, ran = [], []
+    monkeypatch.setattr(agent, "send", lambda report, server, key: sent.append(report) or {"captureId": 42})
+    monkeypatch.setattr(agent, "next_capture", lambda server, key: {"captureId": 42, "maxSeconds": 10})
+    monkeypatch.setattr(agent, "run_capture_task", lambda task, server, key, config: ran.append(task))
+
+    assert agent.command_run(agent.argparse.Namespace(once=True, interval=300)) == 0
+    assert sent[0]["capabilities"] == {"captureConsent": False, "npcap": True}
+    assert ran == [{"captureId": 42, "maxSeconds": 10}]
+
+
+def test_a_capture_announced_in_the_answer_but_already_taken_is_not_run_with_made_up_limits(monkeypatch, tmp_path):
+    monkeypatch.setenv("WIFISENSE_AGENT_KEY", SENSOR)
+    monkeypatch.setattr(agent, "traffic_state_path", lambda: tmp_path / "traffic.json")
+    monkeypatch.setattr(agent, "config_path", lambda: tmp_path / "agent.json")
+    monkeypatch.setattr(agent, "ensure_salt", lambda config: "sal")
+    monkeypatch.setattr(agent, "collect", lambda salt: {"deviceCount": 0, "openPorts": []})
+    monkeypatch.setattr(agent, "traffic_counters", lambda: {})
+    monkeypatch.setattr(agent, "agent_capabilities", lambda config: None)
+    monkeypatch.setattr(agent, "send", lambda report, server, key: {"captureId": 43})
+    monkeypatch.setattr(agent, "next_capture", lambda server, key: None)
+    ran = []
+    monkeypatch.setattr(agent, "run_capture_task", lambda *args: ran.append(args))
+
+    assert agent.command_run(agent.argparse.Namespace(once=True, interval=300)) == 0
+    assert ran == []
+
+
+def test_the_version_is_2_0_0():
+    assert agent.AGENT_VERSION == "2.0.0"
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("    Network monitor mode                  : Supported\n", True),
+    ("    Modo de monitor de red                : Compatible\n", True),
+    ("    Network monitor mode                  : Not supported\n", False),
+    ("    Modo de monitor de red                : No compatible\n", False),
+    ("    FIPS 140-2 mode                       : Supported\n", None),
+    ("", None),
+])
+def test_the_monitor_mode_the_card_declares_is_read_but_never_turned_on(text, expected):
+    assert agent.parse_monitor_mode(text) == expected
