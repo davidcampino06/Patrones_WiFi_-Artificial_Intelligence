@@ -73,3 +73,37 @@ def test_a_later_fragment_has_no_ports_and_is_not_guessed():
 
     info = parser.parse(frame, parser.LINK_ETHERNET)
     assert info.protocol == "UDP" and info.service_port is None
+
+
+@pytest.mark.parametrize("frame", [b"", b"\x00" * 10, samples.https_out()[:20], samples.https_out()[:36]])
+def test_cut_headers_are_counted_as_malformed_without_an_exception(frame):
+    info = parser.parse(frame, parser.LINK_ETHERNET, original_length=60)
+
+    assert info.malformed
+    assert info.length == 60
+
+
+def test_raw_ip_and_linux_cooked_captures_are_understood():
+    raw = samples.ipv4("192.168.1.2", "192.168.1.1", 17, samples.udp(53001, 53))
+    cooked = struct.pack("!HHH8sH", 0, 1, 6, samples.OWN_MAC + b"\x00\x00", 0x0800) + raw
+
+    assert parser.parse(raw, parser.LINK_RAW).protocol == "DNS"
+    assert parser.parse(cooked, parser.LINK_LINUX_SLL).protocol == "DNS"
+
+
+def test_an_unknown_link_type_is_other_not_an_error():
+    assert parser.parse(b"\x01\x02\x03", 127).protocol == "OTHER"
+
+
+@pytest.mark.parametrize("source, destination, expected", [
+    (51234, 443, 443), (443, 51234, 443), (53, 5353, 53), (50000, 60000, None), (0, 80, 80),
+])
+def test_the_service_port_is_the_known_one_of_the_conversation(source, destination, expected):
+    assert parser.service_port(source, destination) == expected
+
+
+def test_every_label_is_one_the_server_accepts():
+    frames = [samples.https_out(), samples.dns_query(), samples.mdns(), samples.dhcp_discover(),
+              samples.arp_request(), samples.icmpv6_multicast()]
+    for frame in frames:
+        assert parser.parse(frame, parser.LINK_ETHERNET).protocol in parser.PROTOCOLS
