@@ -95,3 +95,27 @@ def _losses(request: TrafficRequest) -> list[Fact]:
                           evidence=f"La última prueba de conexión de esta red midió {request.connection_loss_pct:.1f} % "
                                    "de pérdida. Es otra medida: no sale de esta captura."))
     return facts
+
+
+def _burst(request: TrafficRequest) -> Inference | None:
+    seconds = max(1, min(int(round(request.duration_seconds)), 361))
+    counts = [0] * seconds
+    for interval in request.intervals:
+        if interval.second < seconds:
+            counts[interval.second] = interval.packets
+    if seconds < SMALL_SAMPLE_SECONDS or request.packets < MIN_PACKETS_FOR_PATTERNS:
+        return None
+    median = statistics.median(counts)
+    mad = statistics.median(abs(c - median) for c in counts) or 1.0
+    threshold = max(median + 6 * mad, 2 * median, 20)
+    bursts = [second for second, count in enumerate(counts) if count > threshold]
+    if not bursts:
+        return None
+    peak = max(counts[s] for s in bursts)
+    confidence = round(min(0.85, 0.45 + 0.1 * len(bursts) + (0.1 if peak > 4 * max(median, 1) else 0)), 2)
+    return Inference(code="TRAFFIC_BURST", severity=Level.WARNING, confidence=confidence,
+                     title="Posible ráfaga de tráfico",
+                     evidence=f"{len(bursts)} segundo(s) con hasta {peak} paquetes, cuando lo normal en esta captura "
+                              f"fue {median:.0f} por segundo (segundos {_list(bursts)}).",
+                     recommendation="Repite la captura en otro momento y compara: una descarga o una actualización "
+                                    "explican una ráfaga; si se repite sin motivo, revisa los equipos conectados.")
