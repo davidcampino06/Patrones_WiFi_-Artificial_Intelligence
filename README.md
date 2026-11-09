@@ -155,6 +155,24 @@ cambiar solo si el nuevo canal tiene al menos una red interfiriendo menos (o si 
 2,4 GHz que pisa a dos de los buenos), porque cambiar desconecta a todos unos segundos. Detalle:
 [docs/canal_wifi.md](docs/canal_wifi.md).
 
+## Capturas y redes cercanas: hechos aparte de inferencias
+
+`app/traffic.py` y `app/nearby.py` leen las estadísticas de una captura técnica y la lista de un escaneo de redes
+cercanas. La respuesta (`app/schemas_findings.py`) separa siempre:
+
+- **Hechos** (`facts`): lo que se contó, sin suposiciones (volumen, protocolos, difusión, la pérdida que informó la
+  herramienta, la pérdida de la última prueba de conexión dicha como otra medida, la seguridad de tu red).
+- **Inferencias** (`inferences`): posibles explicaciones con su **confianza** de 0 a 1 (una ráfaga de tráfico por la
+  mediana y la desviación absoluta de los paquetes por segundo, mucho ARP, mucho tráfico de descubrimiento, web sin
+  cifrar, un canal con menos interferencia reutilizando `app/channel.py`, una red cercana que se parece a la tuya).
+  Una inferencia nunca es crítica, nunca dice que un equipo sea malicioso y siempre trae una acción defensiva que se
+  puede comprobar.
+- **Incertidumbre** (`uncertainty`): qué limita la lectura (una muestra pequeña, que la captura no ve el tráfico de los
+  demás equipos, que la herramienta no dijo si perdió paquetes, que un escaneo solo ve lo que la antena oyó).
+
+Nunca recibe un paquete, una dirección ni un BSSID: solo números. El backend decide quién puede capturar; este servicio
+solo lee lo que le envían. Si no responde, el backend analiza con sus propias reglas y la página lo dice.
+
 ## Recomendaciones con Claude (opcional)
 
 Si se define `ANTHROPIC_API_KEY`, después de la detección `ClaudeAdvisor` (`app/llm_advisor.py`) pide a Claude
