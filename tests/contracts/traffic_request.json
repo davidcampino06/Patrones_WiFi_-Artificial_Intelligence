@@ -1,0 +1,203 @@
+{
+  "durationSeconds": 30.2,
+  "packets": 1200,
+  "bytes": 840000,
+  "droppedByTool": 0,
+  "malformed": 2,
+  "inboundBytes": 600000,
+  "outboundBytes": 240000,
+  "broadcast": 40,
+  "multicast": 80,
+  "localHosts": 6,
+  "remoteHosts": 25,
+  "stopReason": "DURATION",
+  "connectionLossPct": 0.4,
+  "protocols": [
+    {
+      "protocol": "HTTPS",
+      "packets": 900,
+      "bytes": 780000
+    },
+    {
+      "protocol": "DNS",
+      "packets": 120,
+      "bytes": 12000
+    },
+    {
+      "protocol": "ARP",
+      "packets": 40,
+      "bytes": 2400
+    },
+    {
+      "protocol": "MDNS",
+      "packets": 80,
+      "bytes": 20000
+    }
+  ],
+  "ports": [
+    {
+      "transport": "TCP",
+      "port": 443,
+      "packets": 900,
+      "bytes": 780000
+    },
+    {
+      "transport": "UDP",
+      "port": 53,
+      "packets": 120,
+      "bytes": 12000
+    }
+  ],
+  "intervals": [
+    {
+      "second": 0,
+      "packets": 40,
+      "bytes": 28000
+    },
+    {
+      "second": 1,
+      "packets": 40,
+      "bytes": 28000
+    },
+    {
+      "second": 2,
+      "packets": 40,
+      "bytes": 28000
+    },
+    {
+      "second": 3,
+      "packets": 40,
+      "bytes": 28000
+    },
+    {
+      "second": 4,
+      "packets": 40,
+      "bytes": 28000
+    },
+    {
+      "second": 5,
+      "packets": 40,
+      "bytes": 28000
+    },
+    {
+      "second": 6,
+      "packets": 40,
+      "bytes": 28000
+    },
+    {
+      "second": 7,
+      "packets": 40,
+      "bytes": 28000
+    },
+    {
+      "second": 8,
+      "packets": 40,
+      "bytes": 28000
+    },
+    {
+      "second": 9,
+      "packets": 40,
+      "bytes": 28000
+    },
+    {
+      "second": 10,
+      "packets": 40,
+      "bytes": 28000
+    },
+    {
+      "second": 11,
+      "packets": 40,
+      "bytes": 28000
+    },
+    {
+      "second": 12,
+      "packets": 40,
+      "bytes": 28000
+    },
+    {
+      "second": 13,
+      "packets": 40,
+      "bytes": 28000
+    },
+    {
+      "second": 14,
+      "packets": 40,
+      "bytes": 28000
+    },
+    {
+      "second": 15,
+      "packets": 40,
+      "bytes": 28000
+    },
+    {
+      "second": 16,
+      "packets": 40,
+      "bytes": 28000
+    },
+    {
+      "second": 17,
+      "packets": 40,
+      "bytes": 28000
+    },
+    {
+      "second": 18,
+      "packets": 40,
+      "bytes": 28000
+    },
+    {
+      "second": 19,
+      "packets": 40,
+      "bytes": 28000
+    },
+    {
+      "second": 20,
+      "packets": 40,
+      "bytes": 28000
+    },
+    {
+      "second": 21,
+      "packets": 40,
+      "bytes": 28000
+    },
+    {
+      "second": 22,
+      "packets": 40,
+      "bytes": 28000
+    },
+    {
+      "second": 23,
+      "packets": 40,
+      "bytes": 28000
+    },
+    {
+      "second": 24,
+      "packets": 40,
+      "bytes": 28000
+    },
+    {
+      "second": 25,
+      "packets": 40,
+      "bytes": 28000
+    },
+    {
+      "second": 26,
+      "packets": 40,
+      "bytes": 28000
+    },
+    {
+      "second": 27,
+      "packets": 40,
+      "bytes": 28000
+    },
+    {
+      "second": 28,
+      "packets": 40,
+      "bytes": 28000
+    },
+    {
+      "second": 29,
+      "packets": 40,
+      "bytes": 28000
+    }
+  ]
+}
