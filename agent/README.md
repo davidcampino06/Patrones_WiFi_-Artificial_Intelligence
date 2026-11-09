@@ -102,6 +102,18 @@ contenido de un paquete.
 - **Dos llaves:** el pedido del administrador no basta. Quien administra el computador del sensor tiene que permitirlo
   una vez con `WiFiSenseAgente.exe capture-consent on` (`off` lo prohíbe). Sin eso, la captura falla con `NO_CONSENT`.
   Las redes de Mi Wi-Fi nunca hacen capturas.
+- **Herramientas, en este orden** (`capture_backends.py`, patrón Strategy, elegidas por `choose_backend`, una Factory):
+  1. **Npcap** (npcap.com, por ejemplo instalado con Wireshark): no necesita administrador (salvo que se instale
+     «solo para administradores») e informa los paquetes que no alcanzó a guardar. Se usa por su biblioteca
+     `wpcap.dll` con `ctypes` (`NpcapLibrary`, un Adapter). **WiFiSense no lo instala**: si falta, lo dice.
+  2. **pktmon** de Windows 10 (1809 o posterior) y 11: no hay que instalar nada, pero **necesita que el agente corra
+     como administrador**. Escribe un `.etl` temporal que se convierte a `.pcapng` y se cuenta.
+  3. **Socket sin procesar de Windows** (`SIO_RCVALL`): solo paquetes IP del propio computador; también necesita
+     administrador.
+  4. En Linux, **socket de paquetes** (`AF_PACKET`): root o el permiso `CAP_NET_RAW`.
+  Si ninguna sirve, la captura falla con el motivo real (`NO_CAPTURE_TOOL`, `PERMISSION_DENIED`, `NO_INTERFACE`,
+  `UNSUPPORTED_OS`), nunca con datos inventados. El agente nunca pide permisos de administrador por su cuenta ni
+  instala controladores.
 **Nombres de los equipos: de dónde salen (2.0.0).** Además de lo que el equipo anuncia (mDNS, UPnP, NetBIOS, DHCP), el
 agente le pregunta el nombre de cada IP **directamente al DNS del router** (`router_sources.py`): muchos routers
 (dnsmasq: TP-Link, ASUS, OpenWrt y varios del operador) responden el nombre que cada equipo dio al pedir dirección.
