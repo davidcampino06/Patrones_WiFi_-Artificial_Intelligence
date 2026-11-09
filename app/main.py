@@ -10,7 +10,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from app import channel, evaluation, nearby, quality, security, training
+from app import channel, evaluation, nearby, quality, security, traffic, training
 from app.llm_advisor import Advisor, ClaudeAdvisor
 from app.model_service import AnomalyDetectionService
 from app.schemas import (AnalysisRequest, AnalysisResponse, EvaluationReport, ModelInfo, TrainingRequest,
@@ -20,6 +20,7 @@ from app.schemas_findings import FindingsResponse
 from app.schemas_nearby import NearbyRequest
 from app.schemas_quality import QualityRequest, QualityResponse
 from app.schemas_security import SecurityRequest, SecurityResponse
+from app.schemas_traffic import TrafficRequest
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
 
@@ -236,6 +237,14 @@ def security_assess(payload: SecurityRequest) -> SecurityResponse:
 def channel_recommend(payload: ChannelRequest) -> ChannelResponse:
     """Channel with the least interference from the neighbouring networks the agent saw, and whether to move to it."""
     return channel.recommend(payload)
+
+
+@app.post("/api/v1/traffic/analyze", response_model=FindingsResponse, response_model_by_alias=True,
+          dependencies=[Depends(verify_api_key)])
+def traffic_analyze(payload: TrafficRequest) -> FindingsResponse:
+    """Facts and inferences of one technical capture, from its statistics only (never a packet). The backend decides
+    who may capture; this service only reads the numbers it is given."""
+    return traffic.analyze(payload)
 
 
 @app.post("/api/v1/nearby/analyze", response_model=FindingsResponse, response_model_by_alias=True,
