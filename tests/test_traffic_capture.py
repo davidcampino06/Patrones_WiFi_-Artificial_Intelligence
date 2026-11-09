@@ -98,3 +98,27 @@ def test_with_no_usable_tool_the_reason_is_the_missing_permission(delivered, tmp
     result, _ = capture({"captureId": 9}, ALLOWED, OneShot(usable=False), delivered, tmp_path)
 
     assert result["failureReason"] == "PERMISSION_DENIED"
+
+
+def test_an_administrator_asking_to_stop_ends_the_capture_as_cancelled(delivered, tmp_path):
+    result, _ = capture({"captureId": 10, "maxSeconds": 60}, ALLOWED, OneShot([samples.mdns()], until_stopped=True),
+                        delivered, tmp_path, ask_stop=lambda: True, watcher_every=0.01)
+
+    assert result["status"] == "COMPLETED" and result["stopReason"] == "CANCELLED" and result["packetCount"] == 1
+
+
+@pytest.mark.parametrize("task", [{}, {"captureId": "1; rm -rf /"}, {"captureId": True}, {"captureId": -3}])
+def test_a_task_without_a_valid_number_is_ignored(task, delivered, tmp_path):
+    assert capture(task, ALLOWED, OneShot(), delivered, tmp_path)[0] == {} and delivered == []
+
+
+def test_a_delivery_that_fails_is_logged_and_does_not_crash(monkeypatch, tmp_path):
+    monkeypatch.setattr(traffic_capture, "log_path", lambda: tmp_path / "capturas.log")
+    lines = []
+
+    def deliver(_result):
+        raise ConnectionError("sin internet")
+
+    traffic_capture.run_capture({"captureId": 11}, {}, "2.0.0", deliver, lambda: False, None, [],
+                                backends=[OneShot()], temp_root=tmp_path, log=lines.append)
+    assert any("No se entregó" in line for line in lines)
