@@ -87,3 +87,83 @@ def _pcap(stream: BinaryIO, order: str, nanoseconds: bool, summary: FileSummary)
             summary.damaged = True
             return
         yield Frame(seconds + fraction / divisor, link_type, data, original)
+
+
+def _pcapng(stream: BinaryIO, head: bytes, summary: FileSummary) -> Iterator[Frame]:
+    order = "<"
+    interfaces: list[tuple[int, float]] = []  # (tipo de enlace, segundos por unidad de tiempo)
+    block_type_raw = head
+    while True:
+        if not block_type_raw:
+            return  # fin limpio del archivo
+        length_raw = stream.read(4)
+        if len(block_type_raw) < 4 or len(length_raw) < 4:
+            summary.damaged = True
+            return
+        block_type = struct.unpack(order + "I", block_type_raw)[0]
+        if block_type == PCAPNG_SHB:
+            # el orden de los bytes de la sección está en el cuerpo, antes que el largo pueda leerse bien
+            body_start = stream.read(4)
+            if len(body_start) < 4:
+                summary.damaged = True
+                return
+            order = "<" if struct.unpack("<I", body_start)[0] == PCAPNG_BYTE_ORDER else ">"
+            length = struct.unpack(order + "I", length_raw)[0]
+            if length < 28 or length > MAX_BLOCK or length % 4:
+                summary.damaged = True
+                return
+            body = body_start + stream.read(length - 12 - 4)
+            interfaces = []  # cada sección numera sus interfaces desde cero
+        else:
+            length = struct.unpack(order + "I", length_raw)[0]
+            if length < 12 or length > MAX_BLOCK or length % 4:
+                summary.damaged = True
+                return
+            body = stream.read(length - 12)
+        trailer = stream.read(4)
+        if len(body) < length - 12 or len(trailer) < 4:
+            summary.damaged = True
+            return
+        if block_type == BLOCK_IDB and len(body) >= 8:
+            link_type = struct.unpack(order + "H", body[:2])[0]
+            interfaces.append((link_type, _resolution(_options(body[8:], order).get(OPTION_IF_TSRESOL))))
+        elif block_type in (BLOCK_EPB, BLOCK_OPB) and len(body) >= 20:
+            if block_type == BLOCK_EPB:
+                interface, high, low, saved, original = struct.unpack(order + "IIIII", body[:20])
+            else:  # bloque obsoleto: el número de interfaz ocupa 2 bytes y hay 2 de banderas
+                interface, _drops, high, low, saved, original = struct.unpack(order + "HHIIII", body[:20])
+            if interface < len(interfaces) and saved <= len(body) - 20:
+                link_type, unit = interfaces[interface]
+                yield Frame(((high << 32) | low) * unit, link_type, body[20:20 + saved], original)
+            else:
+                summary.damaged = True
+        elif block_type == BLOCK_SPB and len(body) >= 4 and interfaces:
+            original = struct.unpack(order + "I", body[:4])[0]
+            link_type, _unit = interfaces[0]
+            yield Frame(0.0, link_type, body[4:4 + min(original, len(body) - 4)], original)
+        elif block_type == BLOCK_ISB and len(body) >= 12:
+            drop = _options(body[12:], order).get(OPTION_ISB_IFDROP)
+            if drop is not None and len(drop) >= 8:
+                summary.dropped_by_tool = (summary.dropped_by_tool or 0) + struct.unpack(order + "Q", drop[:8])[0]
+        block_type_raw = stream.read(4)
+
+
+def _options(raw: bytes, order: str) -> dict[int, bytes]:
+    """Opciones de un bloque pcapng: (código, largo, valor con relleno a 4 bytes)."""
+    found, offset = {}, 0
+    while offset + 4 <= len(raw):
+        code, length = struct.unpack(order + "HH", raw[offset:offset + 4])
+        if code == OPTION_END:
+            break
+        found.setdefault(code, raw[offset + 4:offset + 4 + length])
+        offset += 4 + length + (-length % 4)
+    return found
+
+
+def _resolution(raw: Optional[bytes]) -> float:
+    """if_tsresol: potencia de 10 (bit alto en 0) o de 2 (bit alto en 1) de la unidad; por defecto microsegundos."""
+    if not raw:
+        return 1e-6
+    value = raw[0]
+    exponent = value & 0x7F
+    return 2.0 ** -exponent if value & 0x80 else 10.0 ** -exponent
