@@ -198,6 +198,7 @@ hasta 3 recomendaciones en español (le envía también la causa probable del di
 | POST | `/api/v1/quality/score` | Calidad de 0 a 100 de una prueba o medición |
 | POST | `/api/v1/security/assess` | Auditoría de seguridad de 0 a 100 con hallazgos y acciones |
 | POST | `/api/v1/channel/recommend` | Canal con menos interferencia y si vale la pena cambiarlo |
+| POST | `/api/v1/traffic/analyze` | Lectura de una captura técnica (solo sus estadísticas): hechos, inferencias con confianza e incertidumbre |
 | POST | `/api/v1/nearby/analyze` | Lectura de un escaneo de redes cercanas: canal lleno, seguridad débil, redes parecidas a la tuya |
 
 **Contrato con el backend** (`tests/test_contract.py`): los JSON de `tests/contracts` son lo que el backend envía y lo
@@ -259,7 +260,7 @@ pip install -r requirements.txt
 cp .env.example .env                       # AI_API_KEY igual a la del backend
 export $(grep -v '^#' .env | xargs)
 uvicorn app.main:app --port 8000
-pytest                                     # 272 pruebas (2 solo corren en Windows y 3 solo en Linux)
+pytest                                     # 477 pruebas (3 solo corren en Windows y 4 solo en Linux; la captura real necesita root)
 python load-tests/carga_ia.py --clientes 10  # prueba de carga (AI_API_KEY en el entorno)
 python -m app.evaluation                   # imprime la evaluación en Markdown
 docker build -t wifisense-ai . && docker run -p 8000:8000 -e AI_API_KEY=... wifisense-ai
@@ -280,7 +281,12 @@ la clave del Wi-Fi en el que está. El instalador (1.5.0 reinstala aunque el age
 Windows real en cada Pull Request que cambie el agente (`.github/workflows/agente-windows.yml`) y se publica al llegar a
 `main`. Desde 1.7.0 el agente reconoce el tipo de cada equipo (mDNS, UPnP y servicios), marca su propio computador
 y el router, reporta cada minuto mientras el usuario identifica un equipo y se actualiza sin código. Desde 1.8.0
-también escucha las solicitudes DHCP de la red para conocer el nombre que cada equipo dice al conectarse.
+también escucha las solicitudes DHCP de la red para conocer el nombre que cada equipo dice al conectarse. Desde 1.9.0
+escanea las redes Wi-Fi cercanas cuando el usuario lo pide en Mi Wi-Fi o cada hora (`agent/wifi_scan.py`), y entrega
+el resultado al backend sin ninguna MAC; ver «Redes Wi-Fi cercanas» en agent/README.md. Desde 2.0.0, como sensor de
+una red del equipo, hace capturas técnicas autorizadas (Npcap, pktmon o sockets del sistema) y entrega solo conteos;
+pregunta los nombres al DNS del router, dice de dónde salió cada nombre y lee la máscara real de la red; ver «Capturas
+técnicas autorizadas» en agent/README.md.
 
 El backend entrena el modelo con las mediciones reales cada semana (o cuando un administrador lo pide) y guarda cada
 versión con sus métricas en `ai_model_versions`; si este servicio se redespliega, el backend le reconstruye la
