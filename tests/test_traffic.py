@@ -91,3 +91,35 @@ def test_many_remote_hosts_in_little_time_is_a_low_confidence_inference():
     inference = next(i for i in traffic.analyze(request(remoteHosts=400)).inferences if i.code == "MANY_REMOTE_HOSTS")
 
     assert inference.confidence == 0.4
+
+
+def test_an_empty_capture_says_so_and_infers_nothing():
+    answer = traffic.analyze(request(packets=0, bytes=0, protocols=[], intervals=[], broadcast=0, multicast=0))
+
+    assert codes(answer.facts)[0] == "EMPTY_CAPTURE"
+    assert answer.inferences == []
+
+
+def test_a_small_sample_makes_the_reading_uncertain_and_finds_no_patterns():
+    answer = traffic.analyze(request(durationSeconds=5, packets=30, bytes=3000,
+                                     protocols=[{"protocol": "ARP", "packets": 30, "bytes": 1800}],
+                                     intervals=[{"second": s, "packets": 6, "bytes": 600} for s in range(5)]))
+
+    assert "muestra pequeña" in answer.uncertainty
+    assert answer.inferences == []
+
+
+@pytest.mark.parametrize("reason, code", [("PACKET_LIMIT", "STOPPED_AT_LIMIT"), ("BYTE_LIMIT", "STOPPED_AT_LIMIT"),
+                                          ("CANCELLED", "STOPPED_BY_ADMIN")])
+def test_a_capture_that_stopped_early_says_it_describes_only_a_part(reason, code):
+    assert code in codes(traffic.analyze(request(stopReason=reason)).facts)
+
+
+def test_the_scope_of_a_local_capture_is_always_stated():
+    assert "no lo que los demás equipos envían" in traffic.analyze(request()).uncertainty
+
+
+def test_a_tiny_share_is_not_rounded_to_zero():
+    fact = next(f for f in traffic.analyze(request(malformed=2)).facts if f.code == "MALFORMED_PACKETS")
+
+    assert "menos de 1 %" in fact.evidence and fact.severity == Level.INFO
