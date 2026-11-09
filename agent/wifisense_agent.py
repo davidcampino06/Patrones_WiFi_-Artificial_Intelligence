@@ -56,6 +56,8 @@ PAIR_PATH = "/api/agent/pair"
 SCANS_PATH = "/api/agent/scans"
 NEXT_SCAN_PATH = "/api/agent/scans/next"
 SCAN_POLL_SECONDS = 30  # entre reportes, cada cuánto se pregunta si el usuario pidió escanear
+CAPTURES_PATH = "/api/agent/captures"
+NEXT_CAPTURE_PATH = "/api/agent/captures/next"
 DEFAULT_INTERVAL = 300
 MIN_INTERVAL = 60
 ROUTER_PORTS = (21, 22, 23, 53, 80, 443, 445, 1900, 7547, 8080, 8443)
@@ -587,10 +589,14 @@ try:  # el agente como paquete (pruebas) o como script suelto (PyInstaller, pyth
     from agent import device_discovery as discovery
     from agent import wifi_scan
     from agent import router_sources
+    from agent import traffic_capture
+    from agent import capture_backends
 except ImportError:  # pragma: no cover
     import device_discovery as discovery
     import wifi_scan
     import router_sources
+    import traffic_capture
+    import capture_backends
 
 IDENTITY_MAX_AGE = 1800  # lo que anuncian los equipos y sus puertos cambia poco: se revisa cada 30 minutos
 _identity_cache: dict = {"at": 0.0, "macs": frozenset(), "by_mac": {}}
@@ -1188,6 +1194,48 @@ def wait_watching_scans(seconds: int, server: str, key: str, salt: str, sleep: C
         except SendError as error:
             if error.retry_after:
                 sleep(min(error.retry_after, max(end - clock(), 0)))
+
+
+# ------------------------------------------------------------------------------- capturas técnicas (2.0.0)
+
+def capture_task_of(answer) -> Optional[dict]:
+    """Lo único que el servidor puede pedir: el número de una captura y sus límites (números). Cualquier otra cosa,
+    como un comando o una ruta, se ignora: el agente nunca ejecuta órdenes que lleguen del servidor."""
+    if not isinstance(answer, dict):
+        return None
+    task = {}
+    for name in ("captureId", "maxSeconds", "maxPackets", "maxBytes"):
+        value = answer.get(name)
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            task[name] = value
+    return task if "captureId" in task else None
+
+
+def next_capture(server: str, key: str, opener=urllib.request.urlopen) -> Optional[dict]:
+    status, answer = agent_call("GET", NEXT_CAPTURE_PATH, server, key, opener=opener)
+    return capture_task_of(answer) if status == 200 else None
+
+
+def run_capture_task(task: dict, server: str, key: str, config: dict, opener=urllib.request.urlopen,
+                     backends: Optional[list] = None) -> dict:
+    """Hace una captura pedida por un administrador (si este computador lo permite) y entrega solo los conteos."""
+    capture_id = task["captureId"]
+    own_ip = local_ip()
+    prefixes = [f"{own_ip}/{network_prefix(own_ip)}"] if own_ip else []
+
+    def deliver(result: dict) -> None:
+        agent_call("POST", CAPTURES_PATH, server, key, result, opener=opener)
+
+    def ask_stop() -> bool:
+        try:
+            _status, answer = agent_call("GET", f"{CAPTURES_PATH}/{int(capture_id)}/state", server, key,
+                                         opener=opener)
+        except ScansUnavailable:
+            return True  # la captura ya no existe para este sensor
+        return bool(answer.get("stop")) if isinstance(answer, dict) else False
+
+    return traffic_capture.run_capture(task, config, AGENT_VERSION, deliver, ask_stop, own_ip, prefixes,
+                                       backends=backends)
 
 
 CODE_PATTERN = re.compile(r"^[A-HJKMNP-Z2-9]{8}$")
