@@ -184,3 +184,40 @@ def test_the_capture_is_run_with_the_sensor_key_and_only_counts_are_posted(monke
     assert posted[0][1] == SERVER + "/api/agent/captures" and posted[0][2] == SENSOR
     assert posted[0][3]["captureId"] == 40 and posted[0][3]["packetCount"] == 1
     assert result["status"] == "COMPLETED" and "192.168" not in json.dumps(posted[0][3])
+
+
+def test_while_waiting_the_sensor_asks_for_captures_and_a_home_agent_stops_asking_after_404(monkeypatch):
+    clock, asked, ran = [0.0], [], []
+
+    def sleep(seconds):
+        clock[0] += seconds
+
+    def opener(request, timeout):
+        asked.append(request.full_url.rsplit("/api/agent/", 1)[1])
+        if request.full_url.endswith("/scans/next"):
+            raise urllib.error.HTTPError(request.full_url, 404, "no", {}, None)
+        if len([a for a in asked if a == "captures/next"]) == 2:
+            return Response(b'{"captureId": 41, "maxSeconds": 20, "maxPackets": 100, "maxBytes": 1048576}')
+        return NoContent(b"")
+
+    monkeypatch.setattr(agent, "run_capture_task", lambda task, server, key, config, opener: ran.append(task))
+    agent.wait_watching_tasks(120, SERVER, SENSOR, "sal", {"captureConsent": True}, sleep=sleep,
+                              clock=lambda: clock[0], opener=opener)
+
+    assert asked.count("scans/next") == 1  # 404: un sensor no tiene escaneos; no se vuelve a preguntar
+    assert asked.count("captures/next") == 3
+    assert ran == [{"captureId": 41, "maxSeconds": 20, "maxPackets": 100, "maxBytes": 1048576}]
+
+
+def test_a_home_agent_never_asks_for_captures(monkeypatch):
+    asked = []
+
+    def opener(request, timeout):
+        asked.append(request.full_url)
+        return NoContent(b"")
+
+    clock = [0.0]
+    agent.wait_watching_scans(60, SERVER, SENSOR, "sal", sleep=lambda s: clock.__setitem__(0, clock[0] + s),
+                              clock=lambda: clock[0], opener=opener)
+
+    assert asked and all(url.endswith("/scans/next") for url in asked)
