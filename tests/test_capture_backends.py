@@ -294,3 +294,75 @@ class FakeSocket:
 
     def close(self):
         self.closed = True
+
+
+def test_the_linux_packet_socket_ignores_frames_meant_for_other_computers():
+    sock = FakeSocket([(samples.https_in(), ("wlan0", 0x0800, 0)),
+                       (samples.https_out(), ("wlan0", 0x0800, backends.PACKET_OTHERHOST)),
+                       (samples.mdns(), ("wlan0", 0x0800, 2))])
+    clock = FakeClock()
+    backend = backends.PacketSocketBackend(opener=lambda ip: (sock, "wlan0"))
+
+    def advancing():
+        clock.now += 1
+        return clock.now
+    s = backends.Session(CaptureStats(Limits(4, 100, 10 ** 6), frozenset({"192.168.1.2"})), lambda: False,
+                         clock=advancing, wall=lambda: 1000.0 + clock.now)
+    run = backend.capture(s)
+
+    assert run.interface_name == "wlan0" and s.stats.packets == 2 and sock.closed
+
+
+def test_a_socket_without_permission_is_reported_as_such():
+    def denied(ip):
+        raise PermissionError("Operation not permitted")
+
+    check = backends.PacketSocketBackend(opener=denied).check()
+    assert check.reason == "PERMISSION_DENIED" and check.present
+    with pytest.raises(backends.CaptureFailed) as failed:
+        backends.PacketSocketBackend(opener=denied).capture(session())
+    assert failed.value.reason == "PERMISSION_DENIED"
+
+
+def test_the_default_interface_comes_from_the_route_table():
+    table = ("Iface\tDestination\tGateway\tFlags\n"
+             "docker0\t000011AC\t00000000\t0001\n"
+             "wlan0\t00000000\t0101A8C0\t0003\n")
+
+    assert backends.default_interface(table) == "wlan0"
+    assert backends.default_interface("Iface\tDestination\n") is None
+
+
+def can_capture_for_real() -> bool:
+    if not hasattr(socket, "AF_PACKET") or os.geteuid() != 0:
+        return False
+    try:
+        socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(3)).close()
+        return True
+    except OSError:
+        return False
+
+
+@pytest.mark.skipif(not can_capture_for_real(), reason="captura real: necesita Linux con root y AF_PACKET")
+def test_a_real_capture_on_the_loopback_interface_counts_the_packets_sent():
+    """Prueba de integración en este mismo computador: se envían 20 datagramas UDP a 127.0.0.1:5353... por la
+    interfaz de bucle local y la captura real los cuenta como mDNS, sin guardar su contenido."""
+    stats = CaptureStats(Limits(3, 1000, 10 ** 7), frozenset({"127.0.0.1"}))
+    backend = backends.PacketSocketBackend(interface=lambda: "lo")
+    s = backends.Session(stats, lambda: False, own_ip="127.0.0.1")
+
+    def send():
+        time.sleep(0.5)
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sender:
+            for _ in range(20):
+                sender.sendto(b"password=secreto", ("127.0.0.1", 5353))
+                time.sleep(0.01)
+    thread = threading.Thread(target=send)
+    thread.start()
+    run = backend.capture(s)
+    thread.join()
+
+    assert run.interface_name == "lo"
+    assert stats.protocols["MDNS"] >= 20
+    result = stats.result(1, "PACKET_SOCKET", run.interface_name, "2.0.0", 3000, None)
+    assert "secreto" not in repr(result) and "127.0.0.1" not in repr(result)
