@@ -534,3 +534,52 @@ def default_interface(route_text: Optional[str] = None) -> Optional[str]:
         if len(parts) > 2 and parts[1] == "00000000":
             return parts[0]
     return None
+
+
+# ----------------------------------------------------------------------------------------------------- Factory
+
+def all_backends() -> list:
+    """En orden de preferencia: Npcap (no necesita administrador y cuenta lo perdido), pktmon, el socket de Windows
+    y, en Linux, el socket de paquetes."""
+    if IS_WINDOWS:
+        return [NpcapBackend(), PktmonBackend(), RawSocketBackend()]
+    return [PacketSocketBackend()]
+
+
+def _check(backend, own_ip: Optional[str]) -> Check:
+    try:
+        return backend.check(own_ip)
+    except Exception as error:  # una herramienta rota no debe impedir probar las demás
+        return Check(False, True, "CAPTURE_ERROR", str(error))
+
+
+def choose_backend(backends: Iterable, own_ip: Optional[str]) -> tuple[Optional[object], dict[str, Check]]:
+    """La primera herramienta que se puede usar ahora, y lo que se supo de las revisadas (para explicar si ninguna
+    sirve). Se detiene en la primera que sirve: no hace falta revisar las demás para capturar."""
+    checks: dict[str, Check] = {}
+    for backend in backends:
+        checks[backend.code] = _check(backend, own_ip)
+        if checks[backend.code].usable:
+            return backend, checks
+    return None, checks
+
+
+def choose_all(backends: Iterable, own_ip: Optional[str]) -> tuple[Optional[object], dict[str, Check]]:
+    """Como choose_backend, pero revisa todas (para informar en el reporte cuáles se pueden usar)."""
+    chosen, checks = None, {}
+    for backend in backends:
+        checks[backend.code] = _check(backend, own_ip)
+        if chosen is None and checks[backend.code].usable:
+            chosen = backend
+    return chosen, checks
+
+
+def failure_without_tool(checks: dict[str, Check]) -> str:
+    """El motivo más útil cuando ninguna herramienta sirve: si alguna existe pero falta permiso, es eso."""
+    if any(check.present and check.reason == "PERMISSION_DENIED" for check in checks.values()):
+        return "PERMISSION_DENIED"
+    if any(check.present and check.reason == "NO_INTERFACE" for check in checks.values()):
+        return "NO_INTERFACE"
+    if checks and all(check.reason == "UNSUPPORTED_OS" for check in checks.values()):
+        return "UNSUPPORTED_OS"
+    return "NO_CAPTURE_TOOL"
