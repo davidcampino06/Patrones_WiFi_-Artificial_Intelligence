@@ -143,3 +143,20 @@ def _ipv6(data: bytes, offset: int, length: int, broadcast: bool, multicast: boo
     if next_header in (IPPROTO_TCP, IPPROTO_UDP):
         return _transport(data, position, next_header, length, common)
     return PacketInfo(length, "IPV6_OTHER", **common)
+
+
+def _transport(data: bytes, offset: int, protocol: int, length: int, common: dict) -> PacketInfo:
+    transport = "TCP" if protocol == IPPROTO_TCP else "UDP"
+    if len(data) < offset + 4:  # la herramienta guardó menos bytes que los puertos
+        return PacketInfo(length, transport, transport=transport, malformed=True, **common)
+    source_port, destination_port = struct.unpack("!HH", data[offset:offset + 4])
+    services = TCP_SERVICES if transport == "TCP" else UDP_SERVICES
+    label = services.get(destination_port) or services.get(source_port) or transport
+    return PacketInfo(length, label, transport=transport, service_port=service_port(source_port, destination_port),
+                      **common)
+
+
+def service_port(source: int, destination: int) -> Optional[int]:
+    """El puerto que identifica el servicio: el conocido de los dos (el otro lo eligió el sistema al azar)."""
+    known = [port for port in (destination, source) if 0 < port < EPHEMERAL_FROM]
+    return min(known) if known else None
