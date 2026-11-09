@@ -82,3 +82,57 @@ def test_packets_after_the_duration_are_not_counted():
     assert not add(s, samples.arp_request(), 55.0)
 
     assert s.stop_reason == "DURATION" and s.packets == 1
+
+
+def test_an_unknown_drop_count_is_left_out_never_a_zero():
+    result = stats().result(1, "PACKET_SOCKET", "eth0", "2.0.0", 1000, None)
+
+    assert "droppedByTool" not in result
+    assert result["packetCount"] == 0 and result["byteCount"] == 0
+    recorder_check(result, Limits(30, 1000, 10_000_000))
+
+
+def test_only_the_20_busiest_services_are_sent():
+    s = stats()
+    for port in range(1, 31):
+        frame = samples.ethernet(samples.ROUTER_MAC, samples.OWN_MAC, 0x0800,
+                                 samples.ipv4("192.168.1.2", "8.8.8.8", 6, samples.tcp(50000, 1000 + port)))
+        for _ in range(port):
+            add(s, frame, 1.0)
+
+    ports = s.result(1, "NPCAP", None, "2.0.0", 1, None)["ports"]
+    assert len(ports) == 20 and ports[0]["port"] == 1030
+
+
+def test_the_addresses_are_forgotten_when_the_capture_ends():
+    s = stats()
+    add(s, samples.https_out(), 1.0)
+    s.forget_addresses()
+
+    assert "142.250" not in repr(s)
+    assert s.result(1, "NPCAP", None, "2.0.0", 1, None)["distinctRemoteHosts"] == 0
+
+
+@pytest.mark.parametrize("task, expected", [
+    ({"maxSeconds": 20, "maxPackets": 300, "maxBytes": 2048}, Limits(20, 300, 2048)),
+    ({}, Limits(30, 5000, 20 * 1024 * 1024)),
+    ({"maxSeconds": 9999, "maxPackets": 10 ** 9, "maxBytes": 10 ** 12}, Limits(300, 100_000, 100 * 1024 * 1024)),
+    ({"maxSeconds": "60; shutdown", "maxPackets": True, "maxBytes": -5}, Limits(30, 5000, 20 * 1024 * 1024)),
+])
+def test_the_limits_never_go_beyond_what_the_server_accepts(task, expected):
+    assert Limits.of(task) == expected
+
+
+def test_a_failure_says_its_reason_and_nothing_else():
+    assert failure(4, "NO_CONSENT", "2.0.0") == {"captureId": 4, "status": "FAILED", "failureReason": "NO_CONSENT",
+                                                  "agentVersion": "2.0.0"}
+    assert failure(4, "CAPTURE_ERROR", "2.0.0", "PKTMON", "x" * 80)["interfaceName"] == "x" * 64
+
+
+def test_the_broadcast_address_of_the_local_network_counts_as_broadcast():
+    s = stats()
+    frame = samples.ethernet(samples.BROADCAST_MAC, samples.ROUTER_MAC, 0x0800,
+                             samples.ipv4("192.168.1.9", "192.168.1.255", 17, samples.udp(137, 137)))
+    add(s, frame, 1.0)
+
+    assert s.broadcast == 1 and s.protocols["NETBIOS"] == 1
