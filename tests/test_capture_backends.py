@@ -207,3 +207,43 @@ def test_pktmon_only_exists_on_windows():
     check = backends.PktmonBackend(windows=False).check()
 
     assert check.reason == "UNSUPPORTED_OS" and not check.present
+
+
+def test_pktmon_that_cannot_start_is_a_failure_with_its_reason(tmp_path):
+    with TempCapture(captures_dir(tmp_path)) as temp, pytest.raises(backends.CaptureFailed) as failed:
+        pktmon(FakePktmon([], start_fails=True)).capture(session(temp=temp))
+
+    assert failed.value.reason == "PERMISSION_DENIED"
+
+
+def test_pktmon_that_hangs_is_stopped_by_the_timeout(tmp_path):
+    with TempCapture(captures_dir(tmp_path)) as temp, pytest.raises(backends.CaptureFailed) as failed:
+        pktmon(FakePktmon([], hang="etl2pcap")).capture(session(temp=temp))
+
+    assert failed.value.reason == "CAPTURE_ERROR" and "no respondió" in failed.value.detail
+
+
+def test_pktmon_reading_stops_at_the_packet_limit(tmp_path):
+    runner = FakePktmon([(1.0 + i / 10, samples.arp_request()) for i in range(20)], stop_output=b"")
+    with TempCapture(captures_dir(tmp_path)) as temp:
+        s = session(limits=Limits(5, 5, 10_000_000), temp=temp)
+        run = pktmon(runner).capture(s)
+
+    assert s.stats.packets == 5 and s.stats.stop_reason == "PACKET_LIMIT"
+    assert run.dropped_by_tool is None  # pktmon no lo dijo: desconocido, no cero
+
+
+def test_pktmon_lost_events_are_read_in_spanish_too():
+    assert backends.LOST_EVENTS.search("Eventos perdidos: 12").group(1) == "12"
+
+
+# ------------------------------------------------------------------------------------------------- elegir una
+
+class Fixed:
+    def __init__(self, code, check):
+        self.code, self._check = code, check
+
+    def check(self, own_ip=None):
+        if isinstance(self._check, Exception):
+            raise self._check
+        return self._check
