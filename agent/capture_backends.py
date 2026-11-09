@@ -485,3 +485,52 @@ class RawSocketBackend(_SocketBackend):
         except (OSError, AttributeError):
             pass
         sock.close()
+
+
+PACKET_OUTGOING, PACKET_OTHERHOST = 4, 3
+ETH_P_ALL = 0x0003
+
+
+class PacketSocketBackend(_SocketBackend):
+    """Socket de paquetes de Linux (AF_PACKET) en la interfaz de la ruta por defecto. Necesita root o CAP_NET_RAW.
+    Sin modo promiscuo: los paquetes para otros equipos que la tarjeta descarte nunca llegan."""
+    code = "PACKET_SOCKET"
+    link_type = packet_parser.LINK_ETHERNET
+
+    def __init__(self, opener=None, interface: Callable[[], Optional[str]] = None):
+        super().__init__(opener)
+        self.interface = interface or default_interface
+
+    def open_socket(self, own_ip: Optional[str]) -> tuple[socket.socket, str]:
+        if not hasattr(socket, "AF_PACKET"):
+            raise CaptureFailed("UNSUPPORTED_OS", "Este sistema no tiene sockets de paquetes.")
+        name = self.interface()
+        if not name:
+            raise CaptureFailed("NO_INTERFACE", "No hay una interfaz con ruta por defecto.")
+        sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(ETH_P_ALL))  # type: ignore[attr-defined]
+        try:
+            sock.bind((name, 0))
+        except OSError:
+            sock.close()
+            raise
+        return sock, name
+
+    def frame(self, data: bytes, address) -> Optional[bytes]:
+        # address = (interfaz, protocolo, tipo de paquete, ...): lo dirigido a otro equipo no se cuenta
+        if isinstance(address, tuple) and len(address) > 2 and address[2] == PACKET_OTHERHOST:
+            return None
+        return data
+
+
+def default_interface(route_text: Optional[str] = None) -> Optional[str]:
+    """La interfaz de la ruta por defecto en Linux (/proc/net/route)."""
+    if route_text is None:
+        try:
+            route_text = Path("/proc/net/route").read_text()
+        except OSError:
+            return None
+    for line in route_text.splitlines()[1:]:
+        parts = line.split()
+        if len(parts) > 2 and parts[1] == "00000000":
+            return parts[0]
+    return None
