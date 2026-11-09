@@ -46,6 +46,28 @@ objetos ahí agregaría código sin resolver un problema. La deducción del tipo
 evidencias (nombre o modelo que anuncia → servicios mDNS y UPnP y puertos abiertos → fabricante → MAC privada) en
 `agent/device_discovery.py::decide_kind`; es una suposición y así se muestra en la página.
 
+### Capturas técnicas (agente 2.0.0): Strategy, Adapter, Factory y Facade
+
+Aquí sí había un problema que pedía objetos: cuatro formas de capturar con requisitos distintos, y una captura que toca
+permisos, herramientas, límites, temporales y el servidor.
+
+- **Strategy** (`capture_backends.py`): `NpcapBackend`, `PktmonBackend`, `RawSocketBackend` y `PacketSocketBackend`
+  tienen la misma interfaz (`check` dice si se puede usar y por qué no; `capture` cuenta dentro de los límites).
+  Agregar otra herramienta es otra clase. *Ejemplo:* en un Windows sin Npcap y con el agente como administrador,
+  `check` de Npcap responde `NO_CAPTURE_TOOL` y el de pktmon responde que sí; se captura con pktmon
+  (`test_capture_backends.py`).
+- **Factory** (`choose_backend`, `all_backends`): elige la primera herramienta usable en orden de preferencia y, si
+  ninguna sirve, el motivo más útil (`failure_without_tool`: si una existe pero falta permiso, dice `PERMISSION_DENIED`).
+- **Adapter** (`NpcapLibrary`, `GatewayDnsSource`): la API en C de Npcap y el protocolo DNS vistos como métodos de
+  Python. Las pruebas reemplazan `NpcapLibrary` por una falsa sin tocar ningún controlador.
+- **Facade** (`traffic_capture.run_capture`): la única entrada de una captura (permiso local, herramienta, aviso en
+  consola, carpeta temporal, consulta de «detente», conteo, envío y registro). Nunca lanza: todo termina en un
+  resultado con su motivo. *Ejemplo:* sin `capture-consent on`, entrega `NO_CONSENT` sin tocar ninguna herramienta
+  (`test_traffic_capture.py`).
+- **Strategy para el router** (`router_sources.py`): `RouterSource` y `source_for` dejan el lugar para una integración
+  oficial por modelo; hoy la única fuente es el DNS del router (solo lectura, sin clave), y bloquear o listar clientes
+  lanza `NotSupported` en lugar de fingir.
+
 ## Analizados y no implementados
 
 | Patrón | Motivo |
