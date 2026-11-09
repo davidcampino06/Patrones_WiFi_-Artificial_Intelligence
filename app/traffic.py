@@ -75,3 +75,23 @@ def analyze(request: TrafficRequest) -> FindingsResponse:
     inferences += _patterns(request, by_protocol)
     return FindingsResponse(facts=facts, inferences=inferences, uncertainty=_uncertainty(request),
                             model_version=MODEL_VERSION)
+
+
+def _losses(request: TrafficRequest) -> list[Fact]:
+    facts = []
+    if request.dropped_by_tool:
+        total = request.packets + request.dropped_by_tool
+        share = request.dropped_by_tool / total
+        facts.append(Fact(code="TOOL_DROPPED", severity=Level.WARNING if share >= 0.01 else Level.INFO,
+                          title="La herramienta perdió paquetes",
+                          evidence=f"La herramienta de captura informó {request.dropped_by_tool} paquetes que no "
+                                   f"alcanzó a guardar ({_pct(request.dropped_by_tool, total)}). Es una pérdida de la "
+                                   "captura, no de la red: los conteos son un mínimo.",
+                          recommendation="Si se repite, captura menos tiempo o en un computador menos ocupado."))
+    if request.connection_loss_pct is not None:
+        facts.append(Fact(code="CONNECTION_LOSS",
+                          severity=Level.WARNING if request.connection_loss_pct >= 2 else Level.INFO,
+                          title="Pérdida en la última prueba de conexión",
+                          evidence=f"La última prueba de conexión de esta red midió {request.connection_loss_pct:.1f} % "
+                                   "de pérdida. Es otra medida: no sale de esta captura."))
+    return facts
