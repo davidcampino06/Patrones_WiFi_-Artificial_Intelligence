@@ -1580,6 +1580,15 @@ def command_run(args) -> int:
                 print(f"  Enviado a «{network.get('network') or 'tu red'}». {answer.get('summary', '')}".rstrip())
                 if scan_id_of(answer) is not None:
                     run_scan(scan_id_of(answer), config["server"], network["key"], salt)
+                if isinstance(answer, dict) and capture_task_of({"captureId": answer.get("captureId")}):
+                    # el reporte solo avisa: la captura se toma con sus límites (si otro pedido ya la tomó, nada)
+                    try:
+                        task = next_capture(config["server"], network["key"])
+                    except (SendError, ScansUnavailable) as error:
+                        print(f"  No se pudo tomar la captura pedida: {error}")
+                        task = None
+                    if task is not None:
+                        run_capture_task(task, config["server"], network["key"], config)
             except SendError as error:
                 print(f"  No se envió: {error}")
                 if error.fatal:
