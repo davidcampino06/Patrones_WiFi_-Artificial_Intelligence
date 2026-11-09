@@ -77,3 +77,24 @@ def test_a_capture_delivers_only_counts_and_deletes_its_temporary_files(delivere
     assert any("Solo cabeceras" in line for line in lines)
     logged = json.loads((tmp_path / "capturas.log").read_text().splitlines()[-1])
     assert logged["captureId"] == 6 and logged["status"] == "COMPLETED" and "interfaceName" not in logged
+
+
+def test_a_tool_that_fails_gives_its_reason_and_no_partial_data(delivered, tmp_path):
+    backend = OneShot(fail=backends.CaptureFailed("PERMISSION_DENIED", "Access is denied."))
+    result, _ = capture({"captureId": 7}, ALLOWED, backend, delivered, tmp_path)
+
+    assert result == {"captureId": 7, "status": "FAILED", "failureReason": "PERMISSION_DENIED",
+                      "agentVersion": "2.0.0", "captureTool": "NPCAP"}
+    assert not backend.temp_seen.exists()
+
+
+def test_an_unexpected_error_is_a_capture_error_not_a_crash(delivered, tmp_path):
+    result, _ = capture({"captureId": 8}, ALLOWED, OneShot(fail=ZeroDivisionError("bug")), delivered, tmp_path)
+
+    assert result["failureReason"] == "CAPTURE_ERROR"
+
+
+def test_with_no_usable_tool_the_reason_is_the_missing_permission(delivered, tmp_path):
+    result, _ = capture({"captureId": 9}, ALLOWED, OneShot(usable=False), delivered, tmp_path)
+
+    assert result["failureReason"] == "PERMISSION_DENIED"
