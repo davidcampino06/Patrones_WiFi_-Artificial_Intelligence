@@ -168,3 +168,42 @@ class FakePktmon:
 def pktmon(runner, elevated=True):
     return backends.PktmonBackend(runner=runner, which=lambda name: r"C:\Windows\System32\PktMon.exe",
                                   elevated=lambda: elevated, windows=True)
+
+
+def test_pktmon_captures_headers_only_of_the_network_cards_and_converts_the_file(tmp_path):
+    runner = FakePktmon([(10.0, samples.https_out()), (10.5, samples.dns_query())])
+    clock = FakeClock()
+    with TempCapture(captures_dir(tmp_path)) as temp:
+        s = session(temp=temp, clock=clock)
+        run = pktmon(runner).capture(s)
+        assert temp.file("captura.pcapng").exists()
+
+    start = runner.calls[0]
+    assert start[:3] == ["pktmon", "start", "--capture"]
+    assert start[start.index("--comp") + 1] == "nics" and start[start.index("--pkt-size") + 1] == "128"
+    assert [call[1] for call in runner.calls] == ["start", "stop", "etl2pcap"]
+    assert s.stats.packets == 2 and run.dropped_by_tool == 4
+    assert temp.removed  # el .etl y el .pcapng se borraron al terminar
+
+
+def test_pktmon_on_windows_10_1809_uses_its_older_commands(tmp_path):
+    runner = FakePktmon([(1.0, samples.arp_request())], modern=False)
+    with TempCapture(captures_dir(tmp_path)) as temp:
+        s = session(temp=temp)
+        pktmon(runner).capture(s)
+
+    verbs = [call[1] for call in runner.calls]
+    assert verbs == ["start", "start", "stop", "etl2pcap", "pcapng"]
+    assert runner.calls[1][2] == "--etw" and s.stats.packets == 1
+
+
+def test_pktmon_without_administrator_is_not_usable_and_says_why():
+    check = pktmon(FakePktmon([]), elevated=False).check()
+
+    assert not check.usable and check.present and check.reason == "PERMISSION_DENIED"
+
+
+def test_pktmon_only_exists_on_windows():
+    check = backends.PktmonBackend(windows=False).check()
+
+    assert check.reason == "UNSUPPORTED_OS" and not check.present
