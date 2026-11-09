@@ -247,3 +247,50 @@ class Fixed:
         if isinstance(self._check, Exception):
             raise self._check
         return self._check
+
+
+def test_the_first_usable_tool_is_chosen_in_order_of_preference():
+    chosen, checks = backends.choose_backend([
+        Fixed("NPCAP", backends.Check(False, False, "NO_CAPTURE_TOOL")),
+        Fixed("PKTMON", backends.Check(True, True, interfaces=1)),
+        Fixed("RAW_SOCKET", RuntimeError("no debería revisarse")),
+    ], "192.168.1.2")
+
+    assert chosen.code == "PKTMON" and list(checks) == ["NPCAP", "PKTMON"]
+
+
+def test_a_broken_tool_does_not_prevent_checking_the_others():
+    chosen, checks = backends.choose_all([Fixed("NPCAP", OSError("dll dañada")),
+                                          Fixed("PKTMON", backends.Check(True, True, interfaces=1))], None)
+
+    assert chosen.code == "PKTMON" and checks["NPCAP"].reason == "CAPTURE_ERROR"
+
+
+@pytest.mark.parametrize("reasons, expected", [
+    ([("NO_CAPTURE_TOOL", False), ("PERMISSION_DENIED", True)], "PERMISSION_DENIED"),
+    ([("NO_CAPTURE_TOOL", False), ("NO_CAPTURE_TOOL", False)], "NO_CAPTURE_TOOL"),
+    ([("UNSUPPORTED_OS", False)], "UNSUPPORTED_OS"),
+    ([("NO_INTERFACE", True), ("NO_CAPTURE_TOOL", False)], "NO_INTERFACE"),
+])
+def test_without_a_tool_the_most_useful_reason_is_given(reasons, expected):
+    checks = {f"T{i}": backends.Check(False, present, reason) for i, (reason, present) in enumerate(reasons)}
+
+    assert backends.failure_without_tool(checks) == expected
+
+
+# --------------------------------------------------------------------------------------------------- sockets
+
+class FakeSocket:
+    def __init__(self, packets):
+        self.packets, self.closed = list(packets), False
+
+    def settimeout(self, value):
+        pass
+
+    def recvfrom(self, size):
+        if not self.packets:
+            raise socket.timeout()
+        return self.packets.pop(0)
+
+    def close(self):
+        self.closed = True
