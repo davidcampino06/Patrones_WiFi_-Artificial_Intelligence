@@ -114,6 +114,19 @@ contenido de un paquete.
   Si ninguna sirve, la captura falla con el motivo real (`NO_CAPTURE_TOOL`, `PERMISSION_DENIED`, `NO_INTERFACE`,
   `UNSUPPORTED_OS`), nunca con datos inventados. El agente nunca pide permisos de administrador por su cuenta ni
   instala controladores.
+- **Captura mínima:** sin modo promiscuo y como mucho 128 bytes por paquete (las cabeceras). Lo que ve es el tráfico
+  de ese computador y la difusión de la red (escenario A). **No ve lo que los demás equipos del Wi-Fi envían a
+  Internet**: para eso haría falta modo monitor (escenario C), que el agente nunca activa; un puerto espejo de un switch
+  (escenario B) no se puede comprobar desde el agente, y no hay integración con routers (escenario D).
+- **Archivos temporales** (`capture_files.py`): en `%LOCALAPPDATA%\WiFiSense\capturas` (privada del usuario; en Linux
+  con permisos 700). Se borran al terminar la captura, salga bien o mal; los restos de una captura interrumpida se
+  borran después de una hora. Nunca se envían ni se pueden descargar.
+- **Registro local** (`%APPDATA%\WiFiSense\capturas.log`): una línea por captura con cuándo, cuál, con qué
+  herramienta y cómo terminó. Sin direcciones ni secretos.
+- **Lo que el computador puede hacer** (si se permitieron las capturas, qué herramienta se puede usar ahora, si corre
+  como administrador, si la tarjeta declara modo monitor según `netsh wlan show wirelesscapabilities`) va en cada
+  reporte; así la página explica antes de pedir por qué no se puede capturar.
+
 **Nombres de los equipos: de dónde salen (2.0.0).** Además de lo que el equipo anuncia (mDNS, UPnP, NetBIOS, DHCP), el
 agente le pregunta el nombre de cada IP **directamente al DNS del router** (`router_sources.py`): muchos routers
 (dnsmasq: TP-Link, ASUS, OpenWrt y varios del operador) responden el nombre que cada equipo dio al pedir dirección.
