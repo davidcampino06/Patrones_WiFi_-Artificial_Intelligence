@@ -110,3 +110,61 @@ def test_npcap_restricted_to_administrators_is_a_permission_problem():
     with pytest.raises(backends.CaptureFailed) as failed:
         backends.NpcapBackend(lambda: library).capture(session())
     assert failed.value.reason == "PERMISSION_DENIED"
+
+
+def test_an_error_in_the_middle_of_an_npcap_capture_fails_and_still_closes_the_adapter():
+    clock = FakeClock()
+    library = FakeNpcap(clock, [samples.arp_request()] * 10, fail_at=3)
+
+    with pytest.raises(backends.CaptureFailed) as failed:
+        backends.NpcapBackend(lambda: library).capture(session(clock=clock))
+    assert failed.value.reason == "CAPTURE_ERROR" and "desconectó" in failed.value.detail
+    assert library.closed
+
+
+def test_asking_to_stop_ends_the_capture_as_cancelled():
+    clock = FakeClock()
+    library = FakeNpcap(clock, [samples.arp_request()] * 50)
+    s = session(clock=clock, stop=lambda: clock.now >= 1.0)
+
+    backends.NpcapBackend(lambda: library).capture(s)
+
+    assert s.stats.stop_reason == "CANCELLED" and s.stats.packets == 2  # leídos antes de notar el pedido
+
+
+# ------------------------------------------------------------------------------------------------------ pktmon
+
+class FakePktmon:
+    """Responde como pktmon y escribe los archivos que pktmon escribiría (con paquetes sintéticos)."""
+
+    def __init__(self, frames, start_fails=False, modern=True, stop_output=b"Lost events: 4\r\n", hang=None):
+        self.frames, self.start_fails, self.modern, self.stop_output, self.hang = frames, start_fails, modern, \
+            stop_output, hang
+        self.calls = []
+
+    def __call__(self, args, timeout):
+        self.calls.append(list(args))
+        assert all(isinstance(a, str) for a in args)  # siempre argumentos separados, nunca una línea de consola
+        verb = args[1]
+        if self.hang == verb:
+            raise subprocess.TimeoutExpired(args, timeout)
+        if verb == "start":
+            if self.start_fails or (not self.modern and "--capture" in args):
+                return subprocess.CompletedProcess(args, 1, b"", b"Access is denied.")
+            target = args[args.index("--file-name") + 1] if "--file-name" in args else args[args.index("-f") + 1]
+            open(target, "wb").write(b"ETL")
+            return subprocess.CompletedProcess(args, 0, b"", b"")
+        if verb == "stop":
+            return subprocess.CompletedProcess(args, 0, self.stop_output, b"")
+        if verb in ("etl2pcap", "pcapng"):
+            if verb == "etl2pcap" and not self.modern:
+                return subprocess.CompletedProcess(args, 1, b"", b"Unknown command")
+            out = args[args.index("--out") + 1] if "--out" in args else args[args.index("-o") + 1]
+            open(out, "wb").write(samples.pcapng(self.frames))
+            return subprocess.CompletedProcess(args, 0, b"", b"")
+        raise AssertionError(args)
+
+
+def pktmon(runner, elevated=True):
+    return backends.PktmonBackend(runner=runner, which=lambda name: r"C:\Windows\System32\PktMon.exe",
+                                  elevated=lambda: elevated, windows=True)
