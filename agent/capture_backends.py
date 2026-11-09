@@ -306,3 +306,96 @@ class NpcapBackend:
             return Run(device.description or device.name, library.dropped(handle))
         finally:
             library.close(handle)
+
+
+# ------------------------------------------------------------------------------------------------------ pktmon
+
+Runner = Callable[[list[str], float], "subprocess.CompletedProcess"]
+
+
+def run(args: list[str], timeout: float = COMMAND_TIMEOUT) -> subprocess.CompletedProcess:
+    """Ejecuta una herramienta del sistema con sus argumentos separados (nunca a través de una consola)."""
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    return subprocess.run(args, capture_output=True, timeout=timeout, creationflags=flags, check=False)
+
+
+LOST_EVENTS = re.compile(r"(?i)(?:lost events|eventos perdidos)\D{0,20}(\d+)")
+
+
+class PktmonBackend:
+    """pktmon, el monitor de paquetes que viene con Windows 10 (versión 1809 o posterior) y 11. Necesita que el
+    agente corra como administrador. Escribe un .etl temporal que se convierte a .pcapng para contarlo; ambos se
+    borran al terminar (capture_files.TempCapture)."""
+    code = "PKTMON"
+
+    def __init__(self, runner: Runner = run, which: Callable[[str], Optional[str]] = shutil.which,
+                 elevated: Callable[[], bool] = is_elevated, windows: bool = IS_WINDOWS):
+        self.runner, self.which, self.elevated, self.windows = runner, which, elevated, windows
+
+    def check(self, own_ip: Optional[str] = None) -> Check:
+        if not self.windows:
+            return Check(False, False, "UNSUPPORTED_OS", "pktmon solo existe en Windows.")
+        if not self.which("pktmon"):
+            return Check(False, False, "NO_CAPTURE_TOOL", "Esta versión de Windows no trae pktmon.")
+        if not self.elevated():
+            return Check(False, True, "PERMISSION_DENIED", "pktmon necesita que el agente corra como administrador.")
+        return Check(True, True, interfaces=1)
+
+    def capture(self, session: Session) -> Run:
+        if session.temp is None:
+            raise CaptureFailed("CAPTURE_ERROR", "pktmon necesita una carpeta temporal.")
+        etl, pcapng = session.temp.file("captura.etl"), session.temp.file("captura.pcapng")
+        self._start(etl)
+        started = session.clock()
+        stopped = None
+        try:
+            while not session.over(started):
+                session.sleep(1)
+        finally:
+            stopped = self._command(["pktmon", "stop"])
+        if not etl.exists():
+            raise CaptureFailed("CAPTURE_ERROR", "pktmon no escribió el archivo de la captura.")
+        self._convert(etl, pcapng)
+        # el archivo se lee después de detener pktmon: el motivo de la parada se guarda y se lee todo lo capturado,
+        # salvo que al contar se alcance el límite de paquetes o de bytes
+        why_stopped, session.stats.stop_reason = session.stats.stop_reason, None
+        summary = pcap_files.FileSummary()
+        try:
+            with open(pcapng, "rb") as stream:
+                for frame in pcap_files.read_frames(stream, summary):
+                    info = packet_parser.parse(frame.data, frame.link_type, frame.original_length)
+                    if not session.stats.add(info, frame.timestamp or None):
+                        break
+        except pcap_files.CaptureFileError as error:
+            raise CaptureFailed("CAPTURE_ERROR", str(error))
+        session.stats.stop_reason = session.stats.stop_reason or why_stopped
+        lost = LOST_EVENTS.search(_text(stopped.stdout) if stopped else "")
+        dropped = int(lost.group(1)) if lost else summary.dropped_by_tool
+        return Run("pktmon (tarjetas de red)", dropped, summary.damaged)
+
+    def _start(self, etl: Path) -> None:
+        modern = ["pktmon", "start", "--capture", "--comp", "nics", "--pkt-size", str(SNAPLEN), "--file-name",
+                  str(etl), "--file-size", "64"]
+        answer = self._command(modern)
+        if answer.returncode == 0:
+            return
+        legacy = ["pktmon", "start", "--etw", "-p", str(SNAPLEN), "-f", str(etl)]  # Windows 10 1809 a 1909
+        retry = self._command(legacy)
+        if retry.returncode != 0:
+            message = (_text(answer.stderr) or _text(answer.stdout)).strip()[:200]
+            raise CaptureFailed(_failure_of(message), message or "pktmon no pudo iniciar la captura.")
+
+    def _convert(self, etl: Path, pcapng: Path) -> None:
+        for args in (["pktmon", "etl2pcap", str(etl), "--out", str(pcapng)],
+                     ["pktmon", "pcapng", str(etl), "-o", str(pcapng)]):
+            if self._command(args).returncode == 0 and pcapng.exists():
+                return
+        raise CaptureFailed("CAPTURE_ERROR", "pktmon no pudo convertir la captura a pcapng.")
+
+    def _command(self, args: list[str]) -> subprocess.CompletedProcess:
+        try:
+            return self.runner(args, COMMAND_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            raise CaptureFailed("CAPTURE_ERROR", f"{' '.join(args[:2])} no respondió a tiempo.")
+        except OSError as error:
+            raise CaptureFailed("CAPTURE_ERROR", f"No se pudo ejecutar pktmon: {error}")
