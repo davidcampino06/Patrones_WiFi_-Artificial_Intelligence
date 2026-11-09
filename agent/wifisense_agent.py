@@ -1254,6 +1254,45 @@ def run_capture_task(task: dict, server: str, key: str, config: dict, opener=url
                                        backends=backends)
 
 
+def parse_monitor_mode(text: str) -> Optional[bool]:
+    """'Network monitor mode : Supported' de 'netsh wlan show wirelesscapabilities' (Windows 10 o posterior, en
+    español o inglés). Solo dice si la tarjeta lo declara: el agente nunca activa el modo monitor."""
+    for key, value in key_values(text):
+        if "monitor" not in normalize_key(key):
+            continue
+        plain = normalize_key(value)
+        if plain.startswith(("no", "not")) or "unsupported" in plain:
+            return False
+        if any(word in plain for word in ("support", "compat", "admit", "si")):
+            return True
+    return None
+
+
+def monitor_mode_hint() -> Optional[bool]:
+    if not IS_WINDOWS:
+        return None
+    return parse_monitor_mode(run_command(["netsh", "wlan", "show", "wirelesscapabilities"]))
+
+
+CAPABILITIES_MAX_AGE = 600
+_capabilities_cache: dict = {"at": -CAPABILITIES_MAX_AGE, "value": None, "consent": None}
+
+
+def agent_capabilities(config: dict, now: Optional[float] = None, backends: Optional[list] = None) -> Optional[dict]:
+    """Lo que este computador puede hacer para las capturas, revisado como mucho cada 10 minutos (o al cambiar el
+    permiso local). Si la revisión falla, el reporte sale sin capacidades: el servidor entonces no permite capturar."""
+    now = time.monotonic() if now is None else now
+    consent = traffic_capture.consent_given(config)
+    cache = _capabilities_cache
+    if cache["value"] is None or now - cache["at"] > CAPABILITIES_MAX_AGE or cache["consent"] != consent:
+        try:
+            cache.update(at=now, consent=consent,
+                         value=traffic_capture.capabilities(config, local_ip(), backends=backends,
+                                                            monitor_hint=monitor_mode_hint()))
+        except Exception as error:
+            print(f"  aviso: no se pudo revisar qué puede capturar este computador: {error}", file=sys.stderr)
+            return None
+    return cache["value"]
 
 
 CODE_PATTERN = re.compile(r"^[A-HJKMNP-Z2-9]{8}$")
@@ -1528,6 +1567,9 @@ def command_run(args) -> int:
             if previous and previous.get("network") not in (None, tag):
                 previous = None  # el reporte anterior fue de otra red: su tráfico no es de esta
             report.update(traffic_fields(previous, counters))
+            caps = agent_capabilities(config)
+            if caps:
+                report["capabilities"] = caps
             print(describe(report))
             try:
                 answer = send(report, config["server"], network["key"])
