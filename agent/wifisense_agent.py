@@ -9,6 +9,9 @@ Solo usa la biblioteca estándar de Python 3.9 o superior (no hay que instalar n
     python wifisense_agent.py nearby       escanea las redes Wi-Fi cercanas y las muestra, sin enviar nada
     python wifisense_agent.py run          envía un reporte cada 5 minutos (Ctrl + C para detener)
     python wifisense_agent.py run --once   envía un solo reporte
+    python wifisense_agent.py capture-check        dice si este computador puede hacer capturas técnicas y por qué
+    python wifisense_agent.py capture-consent on   permite las capturas técnicas en este computador (off: las prohíbe)
+    python wifisense_agent.py capture-local        prueba una captura aquí mismo y muestra los conteos, sin enviar nada
 
 Qué mide y qué envía:
   * Datos del Wi-Fi que muestra el sistema (nombre, tipo de seguridad, señal, canal, banda) y cuántas redes vecinas
@@ -23,6 +26,10 @@ Qué mide y qué envía:
     byte, nunca la MAC completa, y nunca se leen las contraseñas guardadas (ver wifi_scan.py).
   * El tráfico de este computador desde el reporte anterior (bytes y paquetes por protocolo TCP, UDP e ICMP), leído
     de los contadores del sistema. Solo se guarda cuando el agente es el sensor de una red del equipo WiFiSense.
+  * Qué puede hacer este computador para las capturas técnicas (si se permitieron, qué herramienta hay, si corre como
+    administrador). Una captura solo se hace si un administrador de WiFiSense la pide para una red del equipo Y
+    quien administra este computador la permitió con capture-consent on; de ella solo salen conteos
+    (ver traffic_capture.py). Las redes de Mi Wi-Fi nunca hacen capturas.
 """
 from __future__ import annotations
 
@@ -1531,6 +1538,56 @@ def command_nearby(args) -> int:
     return 0 if result.get("status") == "COMPLETED" else 1
 
 
+def command_capture_consent(args) -> int:
+    """Permite (on) o prohíbe (off) las capturas técnicas en ESTE computador. Lo decide quien lo administra: desde
+    la página no se puede encender."""
+    config = load_config()
+    allowed = args.state == "on"
+    save_config(traffic_capture.set_consent(config, allowed))
+    if allowed:
+        print("Capturas técnicas PERMITIDAS en este computador. Solo se harán cuando un administrador de WiFiSense las "
+              "pida para la red de la que este agente es sensor, con un propósito, y dentro de sus límites. Solo se "
+              "cuentan cabeceras; el contenido no se guarda ni se envía. Para prohibirlas: capture-consent off")
+    else:
+        print("Capturas técnicas PROHIBIDAS en este computador. Las que se pidan fallarán con ese motivo.")
+    return 0
+
+
+def command_capture_check(_args) -> int:
+    """Dice qué puede capturar este computador y por qué no, sin capturar nada."""
+    config = load_config()
+    own_ip = local_ip()
+    _chosen, checks = capture_backends.choose_all(capture_backends.all_backends(), own_ip)
+    caps = traffic_capture.capabilities(config, own_ip, monitor_hint=monitor_mode_hint())
+    if getattr(_args, "output", None):  # el programa sin consola (WiFiSenseAgente.exe) no muestra lo que imprime
+        Path(_args.output).write_text(json.dumps({"capabilities": caps, "checks": {
+            code: {"usable": c.usable, "present": c.present, "reason": c.reason, "detail": c.detail}
+            for code, c in checks.items()}}, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(traffic_capture.describe_capabilities(caps, checks))
+    print("Escenario A (este computador): " + ("disponible" if caps["captureConsent"] and any(
+        caps[k] for k in ("npcap", "pktmon", "rawSocket", "packetSocket")) else "no disponible"))
+    print("Escenario B (puerto espejo de un switch): solo si este computador está conectado a uno; no se puede comprobar.")
+    print("Escenario C (modo monitor): el agente no lo activa nunca.")
+    print("Escenario D (estadísticas del router): no hay integración con ningún router.")
+    return 0
+
+
+def command_capture_local(args) -> int:
+    """Prueba una captura aquí mismo con la herramienta disponible y muestra los conteos que se enviarían (no envía
+    nada). Es la prueba manual en un computador real."""
+    config = traffic_capture.set_consent(load_config(), True)  # la persona lo pidió en su propio computador
+    own_ip = local_ip()
+    prefixes = [f"{own_ip}/{network_prefix(own_ip)}"] if own_ip else []
+    task = {"captureId": 1, "maxSeconds": max(1, min(args.seconds, 300)), "maxPackets": max(1, min(args.packets,
+                                                                                                   100_000))}
+    shown: dict = {}
+    traffic_capture.run_capture(task, config, AGENT_VERSION, shown.update, lambda: False, own_ip, prefixes)
+    print(json.dumps(shown, indent=2, ensure_ascii=False))
+    if args.output:
+        Path(args.output).write_text(json.dumps(shown, indent=2, ensure_ascii=False), encoding="utf-8")
+    return 0 if shown.get("status") == "COMPLETED" else 1
+
+
 def next_wait(answer: dict, interval: int) -> int:
     """Mientras alguien identifica un equipo en la página, el servidor pide reportar cada minuto; nunca más seguido que
     MIN_INTERVAL ni más lento que el intervalo normal."""
@@ -1615,6 +1672,17 @@ def main(argv: Optional[list[str]] = None) -> int:
     nearby = commands.add_parser("nearby", help="escanear las redes Wi-Fi cercanas y mostrarlas sin enviar")
     nearby.add_argument("--output", help="guardar el resultado (sin MAC) en este archivo JSON")
     nearby.set_defaults(handler=command_nearby)
+    consent = commands.add_parser("capture-consent", help="permitir (on) o prohibir (off) capturas técnicas aquí")
+    consent.add_argument("state", choices=("on", "off"))
+    consent.set_defaults(handler=command_capture_consent)
+    check = commands.add_parser("capture-check", help="qué puede capturar este computador")
+    check.add_argument("--output", help="guardar el resultado en este archivo JSON")
+    check.set_defaults(handler=command_capture_check)
+    local = commands.add_parser("capture-local", help="probar una captura aquí, sin enviar nada")
+    local.add_argument("--seconds", type=int, default=10, help="duración (1 a 300 segundos)")
+    local.add_argument("--packets", type=int, default=5000, help="paquetes como máximo")
+    local.add_argument("--output", help="guardar los conteos (sin direcciones) en este archivo JSON")
+    local.set_defaults(handler=command_capture_local)
     run = commands.add_parser("run", help="medir y enviar periódicamente")
     run.add_argument("--once", action="store_true", help="enviar un solo reporte y salir")
     run.add_argument("--interval", type=int, default=DEFAULT_INTERVAL, help="segundos entre reportes (mínimo 60)")
