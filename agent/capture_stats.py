@@ -185,3 +185,38 @@ class CaptureStats:
         """Al terminar: las direcciones vistas se olvidan (solo quedan los conteos)."""
         self._local_hosts.clear()
         self._remote_hosts.clear()
+
+
+def _merge(protocols: list[dict]) -> list[dict]:
+    """Si algo raro se volvió OTHER, se suma en una sola fila (el servidor no acepta protocolos repetidos)."""
+    merged: dict[str, dict] = {}
+    for row in protocols:
+        found = merged.get(row["protocol"])
+        if found:
+            found["packets"] += row["packets"]
+            found["bytes"] += row["bytes"]
+        else:
+            merged[row["protocol"]] = dict(row)
+    return list(merged.values())
+
+
+def local_networks(prefixes: Iterable[str]) -> tuple:
+    """'192.168.1.23/24' -> la red 192.168.1.0/24. Lo que no se entienda se ignora."""
+    networks = []
+    for prefix in prefixes:
+        try:
+            networks.append(ipaddress.ip_interface(prefix).network)
+        except ValueError:
+            continue
+    return tuple(networks)
+
+
+def failure(capture_id: int, reason: str, agent_version: str, tool: Optional[str] = None,
+            interface_name: Optional[str] = None) -> dict:
+    """El cuerpo de una captura que no se pudo hacer, con su motivo (los que conoce el servidor)."""
+    result = {"captureId": capture_id, "status": "FAILED", "failureReason": reason, "agentVersion": agent_version}
+    if tool:
+        result["captureTool"] = tool
+    if interface_name:
+        result["interfaceName"] = interface_name[:64]
+    return result
