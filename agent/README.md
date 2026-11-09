@@ -92,6 +92,16 @@ El código está en `agent/wifi_scan.py` (con `NetshScanner` y `NmcliScanner`, d
 devuelven el mismo resultado) y la forma de leer los textos de `netsh`/`nmcli`, que comparten la medición y el
 escaneo, en `agent/wifi_text.py`.
 
+**Capturas técnicas autorizadas (2.0.0, solo el sensor de una red del equipo).** Un administrador de WiFiSense puede
+pedir, para una red del equipo, una captura con un propósito escrito y límites (segundos, paquetes y bytes). El sensor
+la toma, pregunta cada 5 segundos si debe detenerse y entrega **solo conteos**: paquetes y bytes, entrada y salida,
+difusión y multidifusión, paquetes por protocolo (por cabecera y puerto, sin abrir el contenido), los 20 servicios más
+usados, paquetes por segundo y cuántos equipos distintos hubo. Nunca una IP, una MAC, un nombre consultado ni el
+contenido de un paquete.
+
+- **Dos llaves:** el pedido del administrador no basta. Quien administra el computador del sensor tiene que permitirlo
+  una vez con `WiFiSenseAgente.exe capture-consent on` (`off` lo prohíbe). Sin eso, la captura falla con `NO_CONSENT`.
+  Las redes de Mi Wi-Fi nunca hacen capturas.
 **Nombres de los equipos: de dónde salen (2.0.0).** Además de lo que el equipo anuncia (mDNS, UPnP, NetBIOS, DHCP), el
 agente le pregunta el nombre de cada IP **directamente al DNS del router** (`router_sources.py`): muchos routers
 (dnsmasq: TP-Link, ASUS, OpenWrt y varios del operador) responden el nombre que cada equipo dio al pedir dirección.
