@@ -248,3 +248,61 @@ def _failure_of(message) -> str:
     if any(word in text for word in ("no such device", "no interfaces", "not found")):
         return "NO_INTERFACE"
     return "CAPTURE_ERROR"
+
+
+class NpcapBackend:
+    """Npcap (npcap.com), si el usuario lo instaló (por ejemplo con Wireshark). Por defecto no necesita administrador."""
+    code = "NPCAP"
+
+    def __init__(self, library_loader: Callable[[], Optional[NpcapLibrary]] = NpcapLibrary.load):
+        self._loader = library_loader
+        self._library: Optional[NpcapLibrary] = None
+
+    def library(self) -> Optional[NpcapLibrary]:
+        if self._library is None:
+            self._library = self._loader()
+        return self._library
+
+    def check(self, own_ip: Optional[str] = None) -> Check:
+        library = self.library()
+        if library is None:
+            return Check(False, False, "NO_CAPTURE_TOOL", "Npcap no está instalado.")
+        try:
+            devices = [d for d in library.devices() if not d.loopback]
+        except CaptureFailed as failure:
+            return Check(False, True, failure.reason, failure.detail)
+        if not devices:
+            return Check(False, True, "NO_INTERFACE", "Npcap no ve ninguna interfaz de red.")
+        device = self.pick(devices, own_ip)
+        return Check(True, True, interfaces=len(devices), monitor_mode=library.can_monitor(device.name))
+
+    @staticmethod
+    def pick(devices: list[NpcapDevice], own_ip: Optional[str]) -> NpcapDevice:
+        """La interfaz por la que este computador sale a la red (la que tiene su IP); si no, la primera."""
+        for device in devices:
+            if own_ip and own_ip in device.addresses:
+                return device
+        with_address = [d for d in devices if d.addresses]
+        return (with_address or devices)[0]
+
+    def capture(self, session: Session) -> Run:
+        library = self.library()
+        if library is None:
+            raise CaptureFailed("NO_CAPTURE_TOOL", "Npcap no está instalado.")
+        devices = [d for d in library.devices() if not d.loopback]
+        if not devices:
+            raise CaptureFailed("NO_INTERFACE", "Npcap no ve ninguna interfaz de red.")
+        device = self.pick(devices, session.own_ip)
+        handle = library.open(device.name)
+        try:
+            link_type = library.datalink(handle)
+            started = session.clock()
+            while not session.over(started):
+                status, timestamp, data, original = library.next(handle)
+                if status == 1:
+                    session.stats.add(packet_parser.parse(data, link_type, original), timestamp)
+                elif status < 0:
+                    raise CaptureFailed("CAPTURE_ERROR", library.error(handle))
+            return Run(device.description or device.name, library.dropped(handle))
+        finally:
+            library.close(handle)
