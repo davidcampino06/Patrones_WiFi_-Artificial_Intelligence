@@ -122,3 +122,34 @@ def test_a_delivery_that_fails_is_logged_and_does_not_crash(monkeypatch, tmp_pat
     traffic_capture.run_capture({"captureId": 11}, {}, "2.0.0", deliver, lambda: False, None, [],
                                 backends=[OneShot()], temp_root=tmp_path, log=lines.append)
     assert any("No se entregó" in line for line in lines)
+
+
+def test_capabilities_say_what_can_be_used_now_not_what_merely_exists():
+    caps = traffic_capture.capabilities({"captureConsent": True}, "192.168.1.2",
+                                        backends=[OneShot(usable=False), _Packet()], elevated=lambda: False)
+
+    assert caps == {"elevated": False, "captureConsent": True, "npcap": False, "pktmon": False, "rawSocket": False,
+                    "packetSocket": True, "monitorMode": "UNSUPPORTED", "captureInterfaces": 1}
+
+
+class _Packet:
+    code = "PACKET_SOCKET"
+
+    def check(self, own_ip=None):
+        return backends.Check(True, True, interfaces=1)
+
+
+def test_consent_is_only_true_when_it_was_given_explicitly():
+    assert not traffic_capture.consent_given({})
+    assert not traffic_capture.consent_given({"captureConsent": "true"})
+    assert traffic_capture.consent_given(traffic_capture.set_consent({}, True))
+    assert not traffic_capture.consent_given(traffic_capture.set_consent({"captureConsent": True}, False))
+
+
+def test_the_check_text_explains_why_a_tool_cannot_be_used():
+    caps = {"elevated": False, "captureConsent": False, "npcap": False, "pktmon": False, "rawSocket": False,
+            "packetSocket": False, "monitorMode": "UNKNOWN", "captureInterfaces": 0}
+    text = traffic_capture.describe_capabilities(caps, {"PKTMON": backends.Check(
+        False, True, "PERMISSION_DENIED", "pktmon necesita que el agente corra como administrador.")})
+
+    assert "capture-consent on" in text and "ninguna" in text and "administrador" in text
