@@ -221,3 +221,104 @@ def test_describe_sample_is_readable():
     text = live.describe_sample({"downloadBps": 12_500_000, "uploadBps": 1_000_000, "internetLost": True,
                                  "gatewayMs": 4.2, "signalPercent": 64})
     assert text == "bajada 12.50 Mbps · subida 1.00 Mbps · router 4 ms · internet sin respuesta · señal 64 %"
+
+
+# ------------------------------------------------------------------------------------------------- con el servidor
+
+def test_while_waiting_the_agent_starts_live_when_someone_opens_the_page_and_does_not_ask_again_meanwhile(
+        monkeypatch):
+    clock, asked, started = [0.0], [], []
+    running = {"value": False}
+
+    def opener(request, timeout):
+        path = request.full_url.rsplit("/api/agent/", 1)[1]
+        asked.append(path)
+        if path == "live/next":
+            return Response(b'{"live": true, "sampleSeconds": 2, "maxSeconds": 600}')
+        return NoContent(b"")
+
+    def start(task, server, key, opener):
+        started.append(task)
+        running["value"] = True
+
+    monkeypatch.setattr(agent, "start_live", start)
+    monkeypatch.setattr(agent, "live_running", lambda: running["value"])
+    agent.wait_watching_tasks(120, SERVER, KEY, "sal", {}, sleep=lambda s: clock.__setitem__(0, clock[0] + s),
+                              clock=lambda: clock[0], opener=opener)
+
+    assert started == [{"sampleSeconds": 2, "maxSeconds": 600}]
+    assert asked.count("live/next") == 1  # mientras mide no vuelve a preguntar
+    assert asked.count("scans/next") == 3  # y lo demás sigue igual
+
+
+def test_a_server_without_live_is_not_asked_again_until_the_next_report(monkeypatch):
+    clock, asked = [0.0], []
+
+    def opener(request, timeout):
+        path = request.full_url.rsplit("/api/agent/", 1)[1]
+        asked.append(path)
+        if path == "live/next":
+            raise urllib.error.HTTPError(request.full_url, 404, "no", {}, None)
+        return NoContent(b"")
+
+    monkeypatch.setattr(agent, "live_running", lambda: False)
+    agent.wait_watching_tasks(120, SERVER, KEY, "sal", {}, sleep=lambda s: clock.__setitem__(0, clock[0] + s),
+                              clock=lambda: clock[0], opener=opener)
+
+    assert asked.count("live/next") == 1
+
+
+def test_a_sample_goes_to_the_server_with_the_key_and_the_answer_says_whether_to_go_on():
+    requests = []
+
+    def opener(request, timeout):
+        requests.append(request)
+        return Response(b'{"keepGoing": false}')
+
+    assert agent.send_live({"downloadBps": 5, "internetMs": 30.0}, SERVER, KEY, opener=opener) is False
+    request = requests[0]
+    assert request.full_url == SERVER + "/api/agent/live/samples" and request.get_method() == "POST"
+    assert request.headers["X-agent-key"] == KEY
+    assert json.loads(request.data) == {"downloadBps": 5, "internetMs": 30.0}
+
+
+def test_a_revoked_key_stops_the_live_session():
+    def opener(request, timeout):
+        raise urllib.error.HTTPError(request.full_url, 401, "no", {}, None)
+
+    try:
+        agent.send_live({}, SERVER, KEY, opener=opener)
+    except live.LiveStopped:
+        pass
+    else:
+        raise AssertionError("debía detenerse")
+
+
+def test_start_live_measures_in_another_thread_and_ends_when_nobody_watches():
+    fake, posted = FakeTime(), []
+    sampler = fake_sampler(endless_counters(), fake.clock)
+
+    def opener(request, timeout):
+        posted.append(json.loads(request.data))
+        return Response(b'{"keepGoing": false}')
+
+    # el hilo usa el reloj real: con 1 segundo de muestra termina enseguida porque el servidor dice que pare
+    thread = agent.start_live({"sampleSeconds": 1, "maxSeconds": 10}, SERVER, KEY, opener=opener, sampler=sampler)
+    thread.join(timeout=5)
+
+    assert not thread.is_alive() and len(posted) == 1
+    assert not agent.live_running()
+
+
+def test_the_live_command_measures_here_and_saves_the_samples(tmp_path, monkeypatch, capsys):
+    fake = FakeTime()
+    monkeypatch.setattr(agent, "live_sampler", lambda: fake_sampler(endless_counters(), fake.clock))
+    monkeypatch.setattr(live.time, "sleep", fake.sleep)
+    monkeypatch.setattr(live.time, "monotonic", fake.clock)
+    output = tmp_path / "vivo.json"
+
+    assert agent.main(["live", "--seconds", "6", "--output", str(output)]) == 0
+
+    saved = json.loads(output.read_text(encoding="utf-8"))
+    assert saved["agentVersion"] == "2.1.0" and len(saved["samples"]) == 3
+    assert "internet 42 ms" in capsys.readouterr().out
