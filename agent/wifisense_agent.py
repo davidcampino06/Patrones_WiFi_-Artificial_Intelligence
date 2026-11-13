@@ -12,6 +12,7 @@ Solo usa la biblioteca estándar de Python 3.9 o superior (no hay que instalar n
     python wifisense_agent.py capture-check        dice si este computador puede hacer capturas técnicas y por qué
     python wifisense_agent.py capture-consent on   permite las capturas técnicas en este computador (off: las prohíbe)
     python wifisense_agent.py capture-local        prueba una captura aquí mismo y muestra los conteos, sin enviar nada
+    python wifisense_agent.py live                 mide en vivo cada 2 segundos y lo muestra, sin enviar nada
 
 Qué mide y qué envía:
   * Datos del Wi-Fi que muestra el sistema (nombre, tipo de seguridad, señal, canal, banda) y cuántas redes vecinas
@@ -1654,6 +1655,25 @@ def command_capture_local(args) -> int:
     return 0 if shown.get("status") == "COMPLETED" else 1
 
 
+def command_live(args) -> int:
+    """Mide en vivo aquí mismo y lo muestra, sin enviar nada (con --output guarda las muestras). Sirve para probar
+    la medición en vivo en un computador real."""
+    seconds = max(2, min(args.seconds, 300))
+    samples: list[dict] = []
+
+    def show(sample: dict) -> bool:
+        samples.append(sample)
+        print("  " + live_monitor.describe_sample(sample))
+        return True
+
+    print(f"Midiendo en vivo cada 2 segundos durante {seconds} s (Ctrl + C para detener)...")
+    live_monitor.run_session({"sampleSeconds": 2, "maxSeconds": seconds}, live_sampler(), show)
+    if args.output:
+        Path(args.output).write_text(json.dumps({"agentVersion": AGENT_VERSION, "samples": samples},
+                                                ensure_ascii=False, indent=2), encoding="utf-8")
+    return 0 if samples else 1
+
+
 def next_wait(answer: dict, interval: int) -> int:
     """Mientras alguien identifica un equipo en la página, el servidor pide reportar cada minuto; nunca más seguido que
     MIN_INTERVAL ni más lento que el intervalo normal."""
@@ -1749,6 +1769,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     local.add_argument("--packets", type=int, default=5000, help="paquetes como máximo")
     local.add_argument("--output", help="guardar los conteos (sin direcciones) en este archivo JSON")
     local.set_defaults(handler=command_capture_local)
+    live = commands.add_parser("live", help="medir en vivo cada 2 segundos y mostrarlo, sin enviar nada")
+    live.add_argument("--seconds", type=int, default=20, help="duración (2 a 300 segundos)")
+    live.add_argument("--output", help="guardar las muestras en este archivo JSON")
+    live.set_defaults(handler=command_live)
     run = commands.add_parser("run", help="medir y enviar periódicamente")
     run.add_argument("--once", action="store_true", help="enviar un solo reporte y salir")
     run.add_argument("--interval", type=int, default=DEFAULT_INTERVAL, help="segundos entre reportes (mínimo 60)")
