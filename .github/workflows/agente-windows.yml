@@ -80,6 +80,21 @@ jobs:
           if ($raw -match "([0-9a-f]{2}[:-]){5}[0-9a-f]{2}") { throw "salió una MAC" }
           if (Test-Path "$env:LOCALAPPDATA\WiFiSense\capturas\captura-*") { throw "quedaron archivos temporales" }
 
+      # Live measurement (2.1.0) on a real Windows: the runner has a network card and internet, so the counters of
+      # the card (iphlpapi) and the latency to internet must give real numbers, and a sample never carries an address.
+      - name: Medir en vivo con el programa
+        shell: pwsh
+        run: |
+          Start-Process -FilePath dist\WiFiSenseAgente.exe -ArgumentList "live","--seconds","6","--output","vivo.json" -Wait
+          $raw = Get-Content vivo.json -Raw
+          $live = $raw | ConvertFrom-Json
+          foreach ($s in $live.samples) { Write-Output "bajada $($s.downloadBps) bps subida $($s.uploadBps) bps internet $($s.internetMs) ms router $($s.gatewayMs) ms" }
+          if ($live.agentVersion -ne "2.1.0") { throw "versión $($live.agentVersion)" }
+          if ($live.samples.Count -lt 2) { throw "solo $($live.samples.Count) muestras" }
+          if (-not ($live.samples | Where-Object { $null -ne $_.downloadBps })) { throw "no leyó los contadores" }
+          if (-not ($live.samples | Where-Object { $null -ne $_.internetMs })) { throw "no midió la latencia a internet" }
+          if ($raw -match "\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b") { throw "salió una dirección IP" }
+
       - uses: actions/upload-artifact@v7
         with:
           name: WiFiSenseAgente
