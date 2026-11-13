@@ -144,3 +144,80 @@ def test_a_sample_never_carries_an_address():
     assert not re.search(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b", text)
     assert not re.search(r"([0-9a-f]{2}[:-]){5}[0-9a-f]{2}", text)
     assert "Casa" not in text  # el nombre de la red ya lo conoce el servidor por la clave
+
+
+# ------------------------------------------------------------------------------------------------- la sesión
+
+def endless_counters():
+    value = 0
+    while True:
+        value += 1000
+        yield {"bytes.in": value, "bytes.out": value}
+
+
+def test_the_session_samples_every_2_seconds_until_nobody_is_watching():
+    fake, sent = FakeTime(), []
+    sampler = fake_sampler(endless_counters(), fake.clock)
+
+    def send(sample):
+        sent.append(fake.now)
+        return len(sent) < 4  # el cuarto envío responde que ya nadie mira la página
+
+    assert live.run_session({"sampleSeconds": 2, "maxSeconds": 600}, sampler, send, sleep=fake.sleep,
+                            clock=fake.clock) == 4
+    assert sent == [2.0, 4.0, 6.0, 8.0]
+
+
+def test_the_session_ends_after_its_time_even_if_someone_keeps_watching():
+    fake = FakeTime()
+    sampler = fake_sampler(endless_counters(), fake.clock)
+
+    count = live.run_session({"sampleSeconds": 2, "maxSeconds": 10}, sampler, lambda s: True, sleep=fake.sleep,
+                             clock=fake.clock)
+
+    assert count == 5 and fake.now == 10.0
+
+
+def test_three_failed_deliveries_in_a_row_end_the_session_and_one_success_resets_them():
+    fake, results = FakeTime(), iter([True, "fail", "fail", True, "fail", "fail", "fail", True])
+    sampler = fake_sampler(endless_counters(), fake.clock)
+
+    def send(sample):
+        result = next(results)
+        if result == "fail":
+            raise agent.SendError("no se pudo conectar con el servidor")
+        return result
+
+    assert live.run_session({"sampleSeconds": 2, "maxSeconds": 600}, sampler, send, sleep=fake.sleep,
+                            clock=fake.clock) == 2
+
+
+def test_a_key_the_server_no_longer_knows_ends_the_session_at_once():
+    fake, calls = FakeTime(), []
+    sampler = fake_sampler(endless_counters(), fake.clock)
+
+    def send(sample):
+        calls.append(sample)
+        raise live.LiveStopped("401")
+
+    assert live.run_session({"sampleSeconds": 2, "maxSeconds": 600}, sampler, send, sleep=fake.sleep,
+                            clock=fake.clock) == 0
+    assert len(calls) == 1
+
+
+def test_a_stop_request_ends_the_session():
+    fake, stop = FakeTime(), threading.Event()
+    sampler = fake_sampler(endless_counters(), fake.clock)
+
+    def send(sample):
+        stop.set()
+        return True
+
+    assert live.run_session({"sampleSeconds": 2, "maxSeconds": 600}, sampler, send, sleep=fake.sleep,
+                            clock=fake.clock, stop=stop) == 1
+
+
+def test_describe_sample_is_readable():
+    text = live.describe_sample({"downloadBps": 12_500_000, "uploadBps": 1_000_000, "internetLost": True,
+                                 "gatewayMs": 4.2, "signalPercent": 64})
+    assert text == "bajada 12.50 Mbps · subida 1.00 Mbps · router 4 ms · internet sin respuesta · señal 64 %"
