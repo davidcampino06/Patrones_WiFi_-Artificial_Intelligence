@@ -1196,10 +1196,11 @@ def wait_watching_tasks(seconds: int, server: str, key: str, salt: str, config: 
                         sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic,
                         opener=urllib.request.urlopen) -> None:
     """Espera hasta el próximo reporte, preguntando cada 30 segundos si hay algo que hacer: un escaneo de redes
-    cercanas (Mi Wi-Fi) o, si ``config`` no es None, una captura técnica (el sensor de una red del equipo). Una
-    pregunta que el servidor no ofrece a esta clave (404) no se repite hasta el próximo reporte."""
+    cercanas (Mi Wi-Fi) o, si ``config`` no es None, una captura técnica (el sensor de una red del equipo) y si
+    alguien abrió «En vivo» en la página (2.1.0). Una pregunta que el servidor no ofrece a esta clave (404) no se
+    repite hasta el próximo reporte. La medición en vivo corre aparte y no cambia esta espera."""
     end = clock() + seconds
-    asking = {"scans": True, "captures": config is not None}
+    asking = {"scans": True, "captures": config is not None, "live": config is not None}
     while True:
         left = end - clock()
         if left <= 0:
@@ -1207,7 +1208,7 @@ def wait_watching_tasks(seconds: int, server: str, key: str, salt: str, config: 
         sleep(min(SCAN_POLL_SECONDS, left) if any(asking.values()) else left)
         if not any(asking.values()) or clock() >= end:
             continue
-        for kind in ("scans", "captures"):
+        for kind in ("scans", "captures", "live"):
             if not asking[kind]:
                 continue
             try:
@@ -1215,10 +1216,14 @@ def wait_watching_tasks(seconds: int, server: str, key: str, salt: str, config: 
                     scan_id = next_scan(server, key, opener=opener)
                     if scan_id is not None:
                         run_scan(scan_id, server, key, salt, opener=opener)
-                else:
+                elif kind == "captures":
                     task = next_capture(server, key, opener=opener)
                     if task is not None:
                         run_capture_task(task, server, key, config, opener=opener)
+                elif not live_running():
+                    live = next_live(server, key, opener=opener)
+                    if live is not None:
+                        start_live(live, server, key, opener=opener)
             except ScansUnavailable:
                 asking[kind] = False
             except SendError as error:
