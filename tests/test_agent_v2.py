@@ -290,8 +290,8 @@ def test_a_capture_announced_in_the_answer_but_already_taken_is_not_run_with_mad
     assert ran == []
 
 
-def test_the_version_is_2_0_0():
-    assert agent.AGENT_VERSION == "2.0.0"
+def test_the_version_is_2_1_0():
+    assert agent.AGENT_VERSION == "2.1.0"  # 2.1.0: medición en vivo
 
 
 @pytest.mark.parametrize("text, expected", [

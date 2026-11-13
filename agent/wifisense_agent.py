@@ -30,6 +30,9 @@ Qué mide y qué envía:
     administrador). Una captura solo se hace si un administrador de WiFiSense la pide para una red del equipo Y
     quien administra este computador la permitió con capture-consent on; de ella solo salen conteos
     (ver traffic_capture.py). Las redes de Mi Wi-Fi nunca hacen capturas.
+  * Mientras alguien tiene abierto «En vivo» en la página (2.1.0), cada 2 segundos: cuánto baja y sube este
+    computador en ese momento (contadores de la tarjeta), la latencia al router y a internet y la señal del Wi-Fi.
+    Solo números de este computador; se detiene cuando nadie está mirando (ver live_monitor.py).
 """
 from __future__ import annotations
 
@@ -56,7 +59,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable, Optional
 
-AGENT_VERSION = "2.0.0"
+AGENT_VERSION = "2.1.0"
 DEFAULT_SERVER = "https://patroneswifibackend-production.up.railway.app"
 REPORT_PATH = "/api/agent/reports"
 PAIR_PATH = "/api/agent/pair"
@@ -65,6 +68,8 @@ NEXT_SCAN_PATH = "/api/agent/scans/next"
 SCAN_POLL_SECONDS = 30  # entre reportes, cada cuánto se pregunta si el usuario pidió escanear
 CAPTURES_PATH = "/api/agent/captures"
 NEXT_CAPTURE_PATH = "/api/agent/captures/next"
+NEXT_LIVE_PATH = "/api/agent/live/next"
+LIVE_SAMPLES_PATH = "/api/agent/live/samples"
 DEFAULT_INTERVAL = 300
 MIN_INTERVAL = 60
 ROUTER_PORTS = (21, 22, 23, 53, 80, 443, 445, 1900, 7547, 8080, 8443)
@@ -598,12 +603,14 @@ try:  # el agente como paquete (pruebas) o como script suelto (PyInstaller, pyth
     from agent import router_sources
     from agent import traffic_capture
     from agent import capture_backends
+    from agent import live_monitor
 except ImportError:  # pragma: no cover
     import device_discovery as discovery
     import wifi_scan
     import router_sources
     import traffic_capture
     import capture_backends
+    import live_monitor
 
 IDENTITY_MAX_AGE = 1800  # lo que anuncian los equipos y sus puertos cambia poco: se revisa cada 30 minutos
 _identity_cache: dict = {"at": 0.0, "macs": frozenset(), "by_mac": {}}
