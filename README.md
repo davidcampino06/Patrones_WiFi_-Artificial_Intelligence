@@ -286,7 +286,9 @@ escanea las redes Wi-Fi cercanas cuando el usuario lo pide en Mi Wi-Fi o cada ho
 el resultado al backend sin ninguna MAC; ver «Redes Wi-Fi cercanas» en agent/README.md. Desde 2.0.0, como sensor de
 una red del equipo, hace capturas técnicas autorizadas (Npcap, pktmon o sockets del sistema) y entrega solo conteos;
 pregunta los nombres al DNS del router, dice de dónde salió cada nombre y lee la máscara real de la red; ver «Capturas
-técnicas autorizadas» en agent/README.md.
+técnicas autorizadas» en agent/README.md. Desde 2.1.0 (Avance 26), mientras alguien tiene abierto «En vivo» en la
+página, mide cada 2 segundos la bajada y subida de ese momento, la latencia al router y a internet y la señal, en un
+hilo aparte que se detiene solo cuando nadie mira; ver «En vivo» en agent/README.md.
 
 El backend entrena el modelo con las mediciones reales cada semana (o cuando un administrador lo pide) y guarda cada
 versión con sus métricas en `ai_model_versions`; si este servicio se redespliega, el backend le reconstruye la
