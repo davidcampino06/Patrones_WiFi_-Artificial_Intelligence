@@ -73,3 +73,67 @@ def pick_gateway_port(gateway: Optional[str], probe: Probe) -> Optional[int]:
         if probe(gateway, port, PROBE_TIMEOUT) is not None:
             return port
     return None
+
+
+class LiveSampler:
+    """Toma una muestra: tráfico desde la muestra anterior, latencias (en paralelo) y el enlace Wi-Fi."""
+
+    def __init__(self, counters: Callable[[], dict], link: Callable[[], dict], probe: Probe,
+                 gateway: Optional[str], internet: tuple[str, int], clock: Callable[[], float] = time.monotonic):
+        self.counters, self.link, self.probe = counters, link, probe
+        self.gateway, self.internet, self.clock = gateway, internet, clock
+        self.gateway_port: Optional[int] = None
+        self.previous: Optional[tuple[float, dict]] = None
+
+    def start(self) -> None:
+        self.gateway_port = pick_gateway_port(self.gateway, self.probe)
+        self.previous = (self.clock(), self.counters())
+
+    def sample(self) -> dict:
+        if self.previous is None:
+            self.start()
+        results: dict = {}
+
+        def timed(name: str, host: str, port: int) -> threading.Thread:
+            def target():
+                results[name] = self.probe(host, port, PROBE_TIMEOUT)
+            thread = threading.Thread(target=target, daemon=True)
+            thread.start()
+            return thread
+
+        threads = [timed("internet", *self.internet)]
+        if self.gateway and self.gateway_port is not None:
+            threads.append(timed("gateway", self.gateway, self.gateway_port))
+        for thread in threads:
+            thread.join(timeout=PROBE_TIMEOUT + 1)
+
+        now, current = self.clock(), self.counters()
+        before_at, before = self.previous
+        self.previous = (now, current)
+        down, up = throughput(before, current, now - before_at)
+
+        sample: dict = {"intervalMs": max(0, round((now - before_at) * 1000))}
+        if down is not None:
+            sample["downloadBps"] = down
+        if up is not None:
+            sample["uploadBps"] = up
+        internet = results.get("internet")
+        if internet is None:
+            sample["internetLost"] = True
+        else:
+            sample["internetMs"] = round(internet, 1)
+        if self.gateway and self.gateway_port is not None:
+            gateway = results.get("gateway")
+            if gateway is None:
+                sample["gatewayLost"] = True
+            else:
+                sample["gatewayMs"] = round(gateway, 1)
+        try:
+            link = self.link() or {}
+        except Exception:  # sin datos del Wi-Fi la muestra sigue sirviendo
+            link = {}
+        for name in ("signalPercent", "rxRateMbps", "txRateMbps"):
+            value = link.get(name)
+            if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
+                sample[name] = int(value) if name == "signalPercent" else round(float(value), 1)
+        return sample
