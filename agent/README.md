@@ -276,6 +276,7 @@ misma certeza:
 | Tipo (celular, TV, impresora…) | **Suposición** | Sale del nombre, los servicios y los puertos que ofrece; la página lo muestra como «Parece…» |
 | Nombre que da el router (2.0.0) | **Lo que el router guardó** | El DNS del router repite el nombre que el equipo dio al pedir dirección; cuando coincide con el que anuncia el equipo, la página lo muestra como confirmado |
 | Lista oficial de clientes del router | **No disponible** | Solo el router la tiene, y leerla necesita su clave y una integración por modelo que WiFiSense no tiene |
+| En vivo (2.1.0) | **Medido, solo de este computador** | Contadores de su tarjeta de red y conexiones reales cada 2 s; no ve lo que usan los demás equipos ni el celular que comparte internet |
 | Capturas técnicas (2.0.0) | **Medido, solo de este computador** | Cuenta cabeceras del tráfico del computador del sensor y de la difusión de la red; no ve el tráfico de los demás equipos hacia Internet |
 
 Por eso existe el asistente **«¿Cuál es este equipo?»**: confirmar un equipo apagando su Wi-Fi es más fiable que
