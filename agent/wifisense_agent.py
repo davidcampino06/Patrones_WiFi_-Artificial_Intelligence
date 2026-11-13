@@ -1268,6 +1268,60 @@ def run_capture_task(task: dict, server: str, key: str, config: dict, opener=url
                                        backends=backends)
 
 
+# ------------------------------------------------------------------------------- medición en vivo (2.1.0)
+
+def link_info() -> dict:
+    """Señal y velocidad del enlace Wi-Fi conectado. Un solo comando, sin la lista de redes vecinas: es rápido y se
+    puede leer cada 2 segundos."""
+    if IS_WINDOWS:
+        return parse_netsh_interfaces(run_command(["netsh", "wlan", "show", "interfaces"], timeout=5))
+    return parse_nmcli(run_command(["nmcli", "-t", "-f", "ACTIVE,SSID,CHAN,FREQ,SIGNAL,SECURITY,RATE", "dev", "wifi",
+                                    "list"], timeout=5))[0]
+
+
+def live_sampler() -> "live_monitor.LiveSampler":
+    return live_monitor.LiveSampler(traffic_counters, link_info, connect_time, default_gateway(), INTERNET_TARGET)
+
+
+def next_live(server: str, key: str, opener=urllib.request.urlopen) -> Optional[dict]:
+    """Si alguien abrió «En vivo» en la página: cada cuántos segundos medir y por cuánto tiempo. None si nadie."""
+    status, answer = agent_call("GET", NEXT_LIVE_PATH, server, key, opener=opener)
+    return live_monitor.live_task_of(answer) if status == 200 else None
+
+
+def send_live(sample: dict, server: str, key: str, opener=urllib.request.urlopen) -> bool:
+    """Entrega una muestra; True mientras alguien siga mirando la página."""
+    try:
+        _status, answer = agent_call("POST", LIVE_SAMPLES_PATH, server, key, sample, opener=opener)
+    except ScansUnavailable as error:  # la clave ya no sirve o el servidor no tiene «En vivo»
+        raise live_monitor.LiveStopped(str(error))
+    return bool(answer.get("keepGoing")) if isinstance(answer, dict) else False
+
+
+_live_session: dict = {"thread": None}
+
+
+def live_running() -> bool:
+    thread = _live_session["thread"]
+    return thread is not None and thread.is_alive()
+
+
+def start_live(task: dict, server: str, key: str, opener=urllib.request.urlopen,
+               sampler: Optional["live_monitor.LiveSampler"] = None) -> threading.Thread:
+    """Mide en vivo en un hilo aparte: los reportes, los escaneos y las capturas siguen a su ritmo."""
+    sampler = sampler or live_sampler()
+
+    def target() -> None:
+        sent = live_monitor.run_session(task, sampler, lambda sample: send_live(sample, server, key, opener=opener))
+        print(time.strftime("[%H:%M:%S] ") + f"En vivo terminado: {sent} muestras enviadas.")
+
+    thread = threading.Thread(target=target, name="wifisense-live", daemon=True)
+    _live_session["thread"] = thread
+    print(time.strftime("[%H:%M:%S] ") + f"Alguien abrió «En vivo»: midiendo cada {task['sampleSeconds']} s.")
+    thread.start()
+    return thread
+
+
 def parse_monitor_mode(text: str) -> Optional[bool]:
     """'Network monitor mode : Supported' de 'netsh wlan show wirelesscapabilities' (Windows 10 o posterior, en
     español o inglés). Solo dice si la tarjeta lo declara: el agente nunca activa el modo monitor."""
