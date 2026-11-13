@@ -156,6 +156,32 @@ contraseña necesitan la clave del router y una integración por modelo; hoy no 
 guarda esa clave. `router_sources.py` deja la abstracción lista (`RouterSource`, `source_for`) para agregar una
 integración oficial más adelante sin tocar el resto del agente.
 
+**En vivo (2.1.0).** Mientras alguien tiene abierto **«En vivo»** en la página (Mi Wi-Fi o el sensor de una red del
+equipo), el agente mide cada 2 segundos y lo envía (`agent/live_monitor.py`):
+
+- **Bajada y subida de este momento:** lo que avanzaron los contadores de la tarjeta de red (los mismos del reporte)
+  dividido por el tiempo. Es lo que este computador **está usando**, no lo que la conexión **aguanta** (eso lo mide
+  «Probar mi conexión»), y **no gasta datos de prueba**.
+- **Latencia al router y a internet:** una conexión TCP, como en el reporte. Al router se le prueba primero el puerto
+  53 (DNS), que también atiende la zona Wi-Fi de un celular; si no contesta en ningún puerto, su latencia queda
+  desconocida (no se cuenta como pérdida). Si internet no contesta, esa muestra cuenta como perdida.
+- **Señal y velocidad del enlace Wi-Fi** (`netsh wlan show interfaces` o `nmcli`, un solo comando).
+
+Cómo empieza y termina: entre reportes el agente pregunta cada 30 segundos si alguien mira (así que tarda como mucho
+30 s en empezar). Si es así, mide en un **hilo aparte**: los reportes de 5 minutos, los escaneos y las capturas siguen
+igual. Se detiene cuando el servidor responde que nadie mira (la página se cerró, se pausó o la pestaña quedó oculta),
+a los 10 minutos, o tras 3 envíos fallidos seguidos. El servidor solo puede decir «mide cada N segundos durante M»
+(números con límites) o «para». Las muestras solo llevan números de este computador: ni direcciones, ni MAC, ni sitios.
+
+Prueba en un computador real (no envía nada):
+
+```cmd
+WiFiSenseAgente.exe live --seconds 20 --output vivo.json
+```
+
+Muestra una línea cada 2 segundos («bajada 12.50 Mbps · subida 1.00 Mbps · router 4 ms · internet 38 ms · señal 71 %»)
+y guarda las muestras. GitHub Actions la corre en Windows real con cada cambio del agente.
+
 **Actualizar sin código (1.7.0).** Si el programa descargado es más nuevo que el instalado, la ventana muestra
 **«Actualizar a la versión X»**: detiene el agente, reemplaza el programa y lo vuelve a iniciar. Las claves y las redes
 ya agregadas se conservan; no hace falta ningún código.
