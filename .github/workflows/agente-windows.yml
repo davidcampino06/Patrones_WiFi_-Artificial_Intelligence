@@ -36,7 +36,7 @@ jobs:
           python -m pytest --noconftest -q tests/test_agent.py tests/test_windows_install.py tests/test_wifi_scan.py `
             tests/test_agent_v2.py tests/test_capture_stats.py tests/test_capture_files.py `
             tests/test_capture_backends.py tests/test_traffic_capture.py tests/test_router_sources.py `
-            tests/test_pcap_files.py tests/test_packet_parser.py
+            tests/test_pcap_files.py tests/test_packet_parser.py tests/test_live_monitor.py
 
       - name: Construir WiFiSenseAgente.exe
         run: |
