@@ -47,3 +47,29 @@ def live_task_of(answer) -> Optional[dict]:
 
     return {"sampleSeconds": number("sampleSeconds", DEFAULT_SAMPLE_SECONDS, MIN_SAMPLE_SECONDS, MAX_SAMPLE_SECONDS),
             "maxSeconds": number("maxSeconds", DEFAULT_SESSION_SECONDS, MIN_SESSION_SECONDS, MAX_SESSION_SECONDS)}
+
+
+def throughput(before: dict, after: dict, seconds: float) -> tuple[Optional[int], Optional[int]]:
+    """Bits por segundo de bajada y de subida entre dos lecturas de los contadores. Un contador que retrocede (otra
+    tarjeta, el computador se reinició) o un tiempo que no avanzó no dan un valor confiable: None."""
+    if seconds <= 0:
+        return None, None
+    rates = []
+    for name in ("bytes.in", "bytes.out"):
+        if name not in before or name not in after or after[name] < before[name]:
+            rates.append(None)
+            continue
+        bps = round((after[name] - before[name]) * 8 / seconds)
+        rates.append(bps if bps <= MAX_BPS else None)
+    return rates[0], rates[1]
+
+
+def pick_gateway_port(gateway: Optional[str], probe: Probe) -> Optional[int]:
+    """El primer puerto del router que contesta (un rechazo también contesta). Si ninguno contesta, la latencia al
+    router no se puede medir así y queda desconocida: no se cuenta como pérdida."""
+    if not gateway:
+        return None
+    for port in GATEWAY_PORTS:
+        if probe(gateway, port, PROBE_TIMEOUT) is not None:
+            return port
+    return None
