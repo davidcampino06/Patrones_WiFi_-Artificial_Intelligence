@@ -137,3 +137,54 @@ class LiveSampler:
             if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
                 sample[name] = int(value) if name == "signalPercent" else round(float(value), 1)
         return sample
+
+
+class LiveStopped(Exception):
+    """El servidor ya no reconoce esta clave para medir en vivo (401 o 404): no se sigue intentando."""
+
+
+def run_session(task: dict, sampler: LiveSampler, send: Callable[[dict], bool],
+                sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic,
+                stop: Optional[threading.Event] = None) -> int:
+    """Mide y envía cada ``sampleSeconds`` hasta que el servidor diga que nadie está mirando, se cumpla
+    ``maxSeconds``, fallen 3 envíos seguidos o se pida parar. Devuelve cuántas muestras llegaron."""
+    period = task["sampleSeconds"]
+    sampler.start()
+    deadline = clock() + task["maxSeconds"]
+    next_at = clock() + period
+    sent = failures = 0
+    while clock() < deadline and not (stop and stop.is_set()):
+        wait = next_at - clock()
+        if wait > 0:
+            sleep(wait)
+        next_at = max(next_at + period, clock() + period / 2)
+        sample = sampler.sample()
+        try:
+            keep_going = send(sample)
+        except LiveStopped:
+            return sent
+        except Exception:  # SendError: sin red o el servidor no respondió
+            failures += 1
+            if failures >= MAX_FAILURES:
+                return sent
+            continue
+        failures = 0
+        sent += 1
+        if not keep_going:
+            return sent
+    return sent
+
+
+def describe_sample(sample: dict) -> str:
+    """Una línea legible, para «WiFiSenseAgente.exe live» y para el registro del agente."""
+    def mbps(value) -> str:
+        return f"{value / 1_000_000:.2f} Mbps" if isinstance(value, int) else "—"
+
+    def ms(value) -> str:
+        return f"{value:.0f} ms" if isinstance(value, (int, float)) else "—"
+
+    internet = "sin respuesta" if sample.get("internetLost") else ms(sample.get("internetMs"))
+    router = "sin respuesta" if sample.get("gatewayLost") else ms(sample.get("gatewayMs"))
+    signal = f"{sample['signalPercent']} %" if "signalPercent" in sample else "—"
+    return (f"bajada {mbps(sample.get('downloadBps'))} · subida {mbps(sample.get('uploadBps'))} · "
+            f"router {router} · internet {internet} · señal {signal}")
